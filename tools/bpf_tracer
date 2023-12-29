@@ -1,0 +1,86 @@
+#!/bin/bash
+#
+# Usage:
+#   bpf_tracer IPERF(3)_CMDLINE -- POWERTCP_PARAMS
+#
+# Example calls:
+#   bpf_tracer iperf -N -c 192.168.13.3 -Z bpf_powertcp -- host_bw=12000 hop_bw=25000 beta="2 10" base_rtt=50
+#   bpf_tracer iperf3 -NZ -c 192.168.13.3 -C bpf_powertcp -- host_bw=12000 hop_bw=25000 beta="2 10" base_rtt=50
+#   bpf_tracer iperf3 -NZ -c 192.168.13.3 -C bpf_powertcp -- host_bw=12000 hop_bw=25000 beta="1 2 4 8 10" base_rtt="50 500 5000"
+#   bpf_tracer iperf3 -NZ -c 192.168.13.3 -C bpf_powertcp -- host_bw=12000 hop_bw=25000 beta="1 2 4 8 10" base_rtt=50 gamma="0.5 0.7 0.9"
+#
+
+set -eu
+
+iterate_param()
+{
+	local inargs=$1
+	local param=$2
+	shift 2
+	local vals
+	read -r -a vals <<<"${powertcp_params[$param]}"
+
+	local args
+	for val in "${vals[@]}"; do
+		args="${inargs:+$inargs }$param=$val"
+		run "$args" "$@"
+	done
+}
+
+run()
+{
+	if [[ $# -gt 1 ]]; then
+		iterate_param "$@"
+		return
+	fi
+
+	local args=$1
+
+	local csv_file
+	printf -v csv_file "bpf_powertcp-%s.csv" "$args"
+
+	[[ -z $args ]] || printf "# %s\n" "$args"
+
+	# shellcheck disable=SC2086
+	"${repo_dir}/bpf/powertcp" register -f tracing $args
+
+	"${repo_dir}/bpf/powertcp" trace -C > "$csv_file" &
+	local trace_pid=$!
+	"${iperf_cmdline[@]}"
+
+	sleep 3
+	kill "$trace_pid"
+	wait
+
+	printf "\n"
+}
+
+repo_dir=${0%/*}/..
+if [[ ! -d ${repo_dir}/tools ]]; then
+	printf "I don’t know where I’m called from\n" >&2
+	exit 2
+fi
+
+iperf_cmdline=()
+while [[ $# -gt 0 && $1 != -- ]]; do
+	iperf_cmdline+=( "$1" )
+	shift
+done
+
+# Skip --
+[[ $# -eq 0 ]] || shift
+
+declare -A powertcp_params
+for arg in "$@"; do
+	powertcp_params+=( ["${arg%=*}"]="${arg#*=}" )
+done
+
+"${repo_dir}/bpf/powertcp" unregister || :
+"${repo_dir}/bpf/tcp-int/code/src/tools/tcp_int" unload || :
+
+"${repo_dir}/bpf/tcp-int/code/src/tools/tcp_int" load
+"${repo_dir}/bpf/tcp-int/code/src/tools/tcp_int" "${TCP_INT_ENABLE:-enable}"
+
+printf "%d" "$$" > /sys/fs/cgroup/cgroup.tcp-int/cgroup.procs
+
+run "" "${!powertcp_params[@]}"
