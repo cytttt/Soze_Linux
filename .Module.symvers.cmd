@@ -1,0 +1,1 @@
+cmd_/home/parallels/Soze_Linux/Module.symvers := sed 's/\.ko$$/\.o/' /home/parallels/Soze_Linux/modules.order | scripts/mod/modpost -m -a  -o /home/parallels/Soze_Linux/Module.symvers -e -i Module.symvers   -T -

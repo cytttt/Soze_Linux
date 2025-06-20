@@ -1,0 +1,1 @@
+cmd_/home/parallels/Soze_Linux/soze.ko := ld -r -EL  -maarch64elf -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/parallels/Soze_Linux/soze.ko /home/parallels/Soze_Linux/soze.o /home/parallels/Soze_Linux/soze.mod.o;  true

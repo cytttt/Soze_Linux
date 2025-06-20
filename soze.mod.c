@@ -1,12 +1,18 @@
 #include <linux/module.h>
+#define INCLUDE_VERMAGIC
+#include <linux/build-salt.h>
+#include <linux/elfnote-lto.h>
 #include <linux/vermagic.h>
 #include <linux/compiler.h>
+
+BUILD_SALT;
+BUILD_LTO_INFO;
 
 MODULE_INFO(vermagic, VERMAGIC_STRING);
 MODULE_INFO(name, KBUILD_MODNAME);
 
 __visible struct module __this_module
-__attribute__((section(".gnu.linkonce.this_module"))) = {
+__section(".gnu.linkonce.this_module") = {
 	.name = KBUILD_MODNAME,
 	.init = init_module,
 #ifdef CONFIG_MODULE_UNLOAD
@@ -20,19 +26,15 @@ MODULE_INFO(retpoline, "Y");
 #endif
 
 static const struct modversion_info ____versions[]
-__used
-__attribute__((section("__versions"))) = {
-	{ 0x7ef2b274, __VMLINUX_SYMBOL_STR(module_layout) },
-	{ 0x5f143701, __VMLINUX_SYMBOL_STR(tcp_reno_undo_cwnd) },
-	{ 0x72f7bbb4, __VMLINUX_SYMBOL_STR(tcp_unregister_congestion_control) },
-	{ 0x469bc2b, __VMLINUX_SYMBOL_STR(tcp_register_congestion_control) },
-	{ 0xbdfb6dbb, __VMLINUX_SYMBOL_STR(__fentry__) },
+__used __section("__versions") = {
+	{ 0xdc63e2ec, "module_layout" },
+	{ 0x6ab6511d, "tcp_reno_undo_cwnd" },
+	{ 0x10bd3845, "tcp_unregister_congestion_control" },
+	{ 0x74ffaf52, "tcp_register_congestion_control" },
+	{ 0x92997ed8, "_printk" },
 };
 
-static const char __module_depends[]
-__used
-__attribute__((section(".modinfo"))) =
-"depends=";
+MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "323B0BD274D096FDB5BE1CA");
+MODULE_INFO(srcversion, "6AAE921939703BF514F5A1D");
