@@ -20,7 +20,7 @@
 #include <linux/module.h>
 #include <linux/math64.h>
 #include <net/tcp.h>
-
+#include <linux/printk.h>
 // static u64 min_rate __read_mostly = 1000000;  	// Kbps
 // static u64 max_rate __read_mostly = 100000000;  	// Kbps
 static u64 ln10e5_min_rate __read_mostly = 1381551;  	// ln(Kbps) * 100,000
@@ -40,6 +40,7 @@ struct sozecc {
 
 static inline void sozecc_reset(struct sozecc *ca)
 {
+	pr_info("soze: reset\n");
 	ca->last_cwnd = 1;
 	ca->curr_rtt = 0;
     ca->min_rtt = 0;
@@ -48,6 +49,7 @@ static inline void sozecc_reset(struct sozecc *ca)
 
 static void sozecc_init(struct sock *sk)
 {
+	pr_info("soze: init\n");
 	struct sozecc *ca = inet_csk_ca(sk);
 
 	sozecc_reset(ca);
@@ -83,6 +85,7 @@ static inline u64 exp_approx(u64 x) {
 
 static void sozecc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
+	pr_info("soze: cong avoid\n");
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sozecc *ca = inet_csk_ca(sk);
 
@@ -103,6 +106,10 @@ static void sozecc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
     ca->cwndx10e3 = ca->cwndx10e3 * r_link_kbps / obs_rate_kbps;
 
     tp->snd_cwnd = ca->cwndx10e3 / 1000;
+
+	pr_info("soze: obs_rate=%llu, r_link=%llu, cwndx10e3=%u\n",
+        obs_rate_kbps, r_link_kbps, ca->cwndx10e3);
+
 }
 
 static u32 sozecc_ssthresh(struct sock *sk) { return 0; }
@@ -111,6 +118,7 @@ static void sozecc_state(struct sock *sk, u8 new_state) { }
 
 static void sozecc_acked(struct sock *sk, const struct ack_sample *sample)
 {
+	pr_info("soze: ack\n");
 	struct sozecc *ca = inet_csk_ca(sk);
 	u32 rtt;
 
@@ -143,12 +151,14 @@ static struct tcp_congestion_ops soze __read_mostly = {
 
 static int __init soze_register(void)
 {
+	pr_info("soze: register\n");
 	BUILD_BUG_ON(sizeof(struct sozecc) > ICSK_CA_PRIV_SIZE);
 	return tcp_register_congestion_control(&soze);
 }
 
 static void __exit soze_unregister(void)
 {
+	pr_info("soze: unregister\n");
 	tcp_unregister_congestion_control(&soze);
 }
 
