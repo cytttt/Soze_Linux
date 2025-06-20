@@ -186,9 +186,11 @@ int powertcp_hwtstamp(struct __sk_buff *skb)
 			bpf_sk_storage_get(&map_powertcp_hwtstamps, sk, NULL,
 					   BPF_SK_STORAGE_GET_F_CREATE);
 		if (hwtstamp) {
-			__u64 hwts = skb->hwtstamp;
-			__u64 ts = skb->tstamp;
-			*hwtstamp = hwts > 0 ? hwts : ts;
+			// ubuntu arm don't have member hwtstamp in sk buff
+			// __u64 hwts = skb->hwtstamp;
+			// __u64 ts = skb->tstamp;
+			// *hwtstamp = hwts > 0 ? hwts : ts;
+			*hwtstamp = skb->tstamp;
 		}
 	}
 
