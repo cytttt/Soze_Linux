@@ -137,7 +137,11 @@ static void sozecc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
         return;
     }
     ca->cwndx10e3 = ca->cwndx10e3 * r_link_kbps / obs_rate_kbps;
-
+    
+    if (ca->cwndx10e3 < 10 * 1000) {
+        ca->cwndx10e3 = 10 * 1000;
+    }
+    
     tp->snd_cwnd = ca->cwndx10e3 / 1000;
 
     pr_info("soze: obs_rate=%llu, r_link=%llu, cwndx10e3=%u\n",
