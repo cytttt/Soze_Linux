@@ -16,13 +16,16 @@
  * this behaves the same as the original Reno.
  */
 
-#include <linux/mm.h>
+#include <linux/kernel.h>
+#include <linux/types.h>
+#include <linux/skbuff.h>
+#include <linux/vmalloc.h>
 #include <linux/module.h>
-#include <linux/math64.h>
 #include <net/tcp.h>
+#include <net/inet_sock.h>
+#include <linux/math64.h>
 #include <linux/printk.h>
-#include <linux/bpf.h>
-#include <linux/btf.h>
+#include <linux/ktime.h>
 // static u64 min_rate __read_mostly = 1000000;     // Kbps
 // static u64 max_rate __read_mostly = 100000000;   // Kbps
 static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
@@ -79,6 +82,12 @@ static void ccllcc_init(struct sock *sk)
     struct ccllcc *ca = inet_csk_ca(sk);
 
     ccllcc_reset(ca);
+    
+    /* Initialize rate tracking fields */
+    ca->last_atu_numer = 0;
+    ca->last_atu_denom = 1;
+    ca->last_atu_update = 0;
+    ca->rate_kbps = 1000;  // Initial rate: 1 Mbps
 
     tcp_sk(sk)->snd_ssthresh = 0;
 }
@@ -148,6 +157,89 @@ static u32 ccllcc_ssthresh(struct sock *sk) { return 0; }
 
 static void ccllcc_state(struct sock *sk, u8 new_state) { }
 
+static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event ev) {
+    struct ccllcc *ca = inet_csk_ca(sk);
+    
+    switch (ev) {
+    case CA_EVENT_CWND_RESTART:
+    case CA_EVENT_COMPLETE_CWR:
+    case CA_EVENT_LOSS:
+        ccllcc_reset(ca);
+        break;
+    default:
+        break;
+    }
+}
+
+// ATU state structure (must match eBPF definition)
+struct atu_state {
+    u32 numer;        // ATU numerator from header
+    u32 denom;        // ATU denominator from header
+    u64 timestamp;    // When this data was last updated
+    u32 valid;        // Whether the data is valid
+};
+
+// External reference to the BPF map (similar to TCP-INT)
+extern struct bpf_map map_atu_state;
+
+// Function to retrieve ATU from SK_STORAGE (similar to TCP-INT approach)
+static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
+{
+    struct atu_state *atu_info;
+    u32 scaled_atu;
+    u64 current_time;
+    
+    // Get ATU state from socket storage (similar to TCP-INT)
+    // In real implementation, this would use bpf_sk_storage_get
+    // atu_info = bpf_sk_storage_get(&map_atu_state, sk, NULL, 0);
+    
+    // For now, simulate ATU data retrieval
+    // In production, this would come from the eBPF SK_STORAGE map
+    static struct atu_state simulated_atu = {
+        .numer = 8000,
+        .denom = 10000,
+        .timestamp = 0,
+        .valid = 1
+    };
+    atu_info = &simulated_atu;
+    
+    if (!atu_info || !atu_info->valid) {
+        // No ATU data available, return default
+        *atu_value = 8000; // 80% default
+        return 0;
+    }
+    
+    // Check if data is fresh (within last 100ms)
+    current_time = ktime_get_ns();
+    if (atu_info->timestamp && 
+        (current_time - atu_info->timestamp) > 100000000ULL) {
+        // Stale data, use default
+        *atu_value = 8000;
+        return 0;
+    }
+    
+    // Validate denominator
+    if (atu_info->denom == 0) {
+        *atu_value = 8000; // Default on invalid data
+        return 0;
+    }
+    
+    // Calculate scaled ATU: (numer/denom) * atu_scale
+    // Use 64-bit arithmetic to avoid overflow
+    scaled_atu = (u32)div64_u64((u64)atu_info->numer * atu_scale, 
+                                atu_info->denom);
+    
+    // Clamp to reasonable bounds (10% to 100%)
+    if (scaled_atu < (atu_scale / 10)) {
+        scaled_atu = atu_scale / 10; // Minimum 10%
+    } else if (scaled_atu > atu_scale) {
+        scaled_atu = atu_scale; // Maximum 100%
+    }
+    
+    *atu_value = scaled_atu;
+    return 0;
+}
+
 static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
     struct tcp_sock *tp = tcp_sk(sk);
@@ -156,81 +248,77 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
     if (!tcp_is_cwnd_limited(sk))
         return;
     
-    // Get ATU information
-    u32 atu_numer, atu_denom;
-    u64 maxATU_kbps = 1000;  // Default fallback
-    
-    if (lookup_atu_from_tcpint(sk, &atu_numer, &atu_denom) == 0 && atu_denom > 0) {
-        maxATU_kbps = ((u64)atu_numer * 1000) / atu_denom;
-        
-        // Apply utility function
-        u32 delay_diff = (ca->curr_rtt > ca->min_rtt) ? 
-                        (ca->curr_rtt - ca->min_rtt) : 0;
-        u64 utility = exp_approx(delay_diff);
-        maxATU_kbps = (maxATU_kbps * utility) / 100000;
-    }
-    
-    // Rest of your C2L2 algorithm...
-    u64 current_rate_kbps = ((u64)tp->snd_cwnd * 1500 * 8 * 1000) / ca->curr_rtt;
-    u64 cwnd = (current_rate_kbps * ca->curr_rtt) / (1500 * 8 * 1000);
-    
-    u64 per_packet_update = (cwnd > 0) ? (maxATU_kbps * 1000) / cwnd : maxATU_kbps;
-    current_rate_kbps = (current_rate_kbps * per_packet_update) / 1000;
-    
-    tp->snd_cwnd = max_t(u32, (u32)((current_rate_kbps * ca->curr_rtt) / (1500 * 8 * 1000)), 2U);
-}
-
-static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
-
-    pr_info("c2l2: ack\n");
-    struct ccllcc *ca = inet_csk_ca(sk);
-
-    /* Some calls are for duplicates without timetamps */
-    if (sample->rtt_us < 0)
-        return;
-
-    rtt = sample->rtt_us;  // / USEC_PER_MSEC
+    // Get current RTT
+    u32 rtt = ca->curr_rtt;
     if (rtt == 0)
         rtt = 1;
-
+    
+    // Get ATU from max_atu_h header
     u32 atu;
-    u32 cwnd;
-    /* Assume there exist max_atu paremeter*/
-    atu = ca->max_atu;
-
-    /* calculate update*/
-    // TODO log approx ??
+    if (lookup_atu_from_header(sk, &atu) != 0) {
+        atu = ca->max_atu;  // Use cached value if header not available
+    }
+    ca->max_atu = atu;  // Update cached value
+    
+    // C2L2 Algorithm: Calculate update based on ATU
     u64 update;
     if (atu < atu_frac_lb) {
-        update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_frac / k_p_scale);
+        update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_fraction / k_p_scale);
     }
     else if (atu >= atu_frac_lb && atu <= atu_frac_lb + atu_frac_range) {
         update = exp_approx(
             (ln10e5_max_rate 
                 - log_approx(ca->rate_kbps * FPS)
                 + log_approx(exp_approx((ln10e5_min_rate - ln10e5_max_rate) * (atu - atu_frac_lb) / atu_frac_range) * FPS)
-            ) * k_p_frac / k_p_scale);
+            ) * k_p_fraction / k_p_scale);
     }
     else if (atu > atu_frac_lb + atu_frac_range && atu <= atu_scale) {
         update = exp_approx(
             (ln10e5_min_rate 
                 - log_approx(ca->rate_kbps * FPS)
                 + log_approx((atu_scale - atu) * FPS / (atu_scale - atu_frac_lb - atu_frac_range))
-            ) * k_p_frac / k_p_scale);
+            ) * k_p_fraction / k_p_scale);
+    } else {
+        update = FPS;  // Default update if ATU out of range
     }
+    
+    // Calculate cwnd from current rate
+    u32 cwnd = (ca->rate_kbps * rtt) / (1500 * 8 * 1000);
+    if (cwnd == 0) cwnd = 1;
+    
+    // Calculate per_packet_update
+    u64 per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
+    
+    // Update rate
+    ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
+    
+    // Set new congestion window
+    tp->snd_cwnd = max_t(u32, (ca->rate_kbps * rtt) / (1500 * 8 * 1000), 2U);
+}
 
-    /* calculate cwnd */
-    cwnd = ca->rate_kbps * rtt / (sample->acked * 8 * 1000 * 1000);
+static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
+    struct ccllcc *ca = inet_csk_ca(sk);
 
-    /* calculare per_packet_update */
-    u64 per_pkt_udpate;
-    per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
+    /* Some calls are for duplicates without timestamps */
+    if (sample->rtt_us < 0)
+        return;
 
-    /* update r */
-    u64 rate_kbps = ca->rate_kbps;
-    rate_kbps = rate_kbp * per_pkt_update;
-    ca->rate_kbps = rate_kbps;
-    tp->snd_cwnd = ca->rate_kbps * rtt / (sample->acked * 8 * 1000 * 1000);
+    /* Update RTT measurements */
+    u32 rtt = sample->rtt_us;
+    if (rtt == 0)
+        rtt = 1;
+    
+    ca->curr_rtt = rtt;
+    
+    /* Update min_rtt */
+    if (ca->min_rtt == 0 || rtt < ca->min_rtt)
+        ca->min_rtt = rtt;
+    
+    /* Initialize rate_kbps if not set */
+    if (ca->rate_kbps == 0) {
+        struct tcp_sock *tp = tcp_sk(sk);
+        ca->rate_kbps = (tp->snd_cwnd * 1500 * 8 * 1000) / rtt;
+    }
 }
 
 static struct tcp_congestion_ops ccll __read_mostly = {
