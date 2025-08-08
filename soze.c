@@ -21,43 +21,70 @@
 #include <linux/math64.h>
 #include <net/tcp.h>
 #include <linux/printk.h>
+#include <linux/bpf.h>
+#include <linux/btf.h>
 // static u64 min_rate __read_mostly = 1000000;     // Kbps
 // static u64 max_rate __read_mostly = 100000000;   // Kbps
 static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
 static u64 ln10e5_max_rate __read_mostly = 1842068;     // ln(Kbps) * 100,000
 static u32 delay_scale __read_mostly = 8000;        // us
 
+/* C2L2 constant */
+#define FPS 100000ULL
+// K_p = 0.1
+static u32 k_p_scale __read_mostly = 100;
+static u32 k_p_fraction __read_mostly = 1;
+
+static u32 atu_scale __read_mostly = 10000;
+static u32 atu_frac_lb __read_mostly = 9200; // X
+static u32 atu_frac_range __read_mostly = 500; // Y
+
+static u32 ccll_weight __read_mostly = 1;
+// just use soze value
+// static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
+// static u64 ln10e5_max_rate __read_mostly = 1842068;     // ln(Kbps) * 100,000
+
 // module_param(beta, int, 0644);
 // MODULE_PARM_DESC(beta, "beta for multiplicative increase");
 
-/* Soze CC Parameters */
-struct sozecc {
-    u32 last_cwnd;      /* the last snd_cwnd */
-    u32 curr_rtt;       /* the current rtt */
-    u32 min_rtt;        /* the minimal rtt */
-    u32 cwndx10e3;      /* the congestion window times 1000 */
+/* C2L2 CC Parameters */
+
+struct ccllcc {
+    u32 curr_rtt;
+    u32 min_rtt;
+    u64 cwndx10e3;
+    u32 max_atu;
+    u64 rate_kbps;
+    
+    // Add ATU tracking fields
+    u32 last_atu_numer;
+    u32 last_atu_denom;
+    u64 last_atu_update;
 };
 
-static inline void sozecc_reset(struct sozecc *ca)
+
+static inline void ccllcc_reset(struct ccllcc *ca)
 {
-    pr_info("soze: reset\n");
+    pr_info("c2l2: reset\n");
     ca->last_cwnd = 1;
     ca->curr_rtt = 0;
     ca->min_rtt = 0;
     ca->cwndx10e3 = 2000;
+    ca->rate_kbps = 1; // TODO
 }
 
-static void sozecc_init(struct sock *sk)
+static void ccllcc_init(struct sock *sk)
 {
-    pr_info("soze: init\n");
-    struct sozecc *ca = inet_csk_ca(sk);
+    pr_info("c2l2: init\n");
+    struct ccllcc *ca = inet_csk_ca(sk);
 
-    sozecc_reset(ca);
+    ccllcc_reset(ca);
 
     tcp_sk(sk)->snd_ssthresh = 0;
 }
 
-static void sozecc_cwnd_event(struct sock *sk, enum tcp_ca_event event) { }
+
+static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event event) { }
 
 static inline u64 exp_approx(u64 x) {
     u64 res;
@@ -83,81 +110,80 @@ static inline u64 exp_approx(u64 x) {
     return res / 100000;
 }
 
-static void soze_debug_print(struct sock *sk)
-{
-    struct tcp_sock *tp = tcp_sk(sk);
-    struct sozecc *ca = inet_csk_ca(sk);
 
-    u32 flight = tp->snd_nxt - tp->snd_una;
-    u32 obs_delay = ca->curr_rtt > ca->min_rtt ? ca->curr_rtt - ca->min_rtt : 0;
+static inline u64 log_approx(u64 x) {
+    // input: value * 100000, > 0
+    // output: ln(value) * 100000
 
-    pr_info("soze: cwnd=%u ssthresh=%u flight=%u\n",
-            tp->snd_cwnd, tp->snd_ssthresh, flight);
+    if (x == 0) return 0;
 
-    pr_info("soze: rtt=%u min_rtt=%u delay=%u rcv_rtt=%u rcv_wnd=%u\n",
-            ca->curr_rtt, ca->min_rtt, obs_delay,
-            tp->rcv_rtt_est.rtt_us, tp->rcv_wnd);
+    u64 res = 0;
+    u64 term;
+    u64 y;
+    int i;
 
-    pr_info("soze: delivered=%u ca->cwndx10e3=%u\n",
-            tp->delivered, ca->cwndx10e3);
+    // let x_real = x / 100000
+    // ln(x_real) = 2 * (y + y^3/3 + y^5/5 + ...) where y = (x-1)/(x+1)
+
+    u64 x_plus = x + 100000;
+    u64 x_minus = x - 100000;
+
+    y = x_minus * 100000 / x_plus; // y = (x-1)/(x+1), scaled by 1e5
+    u64 y2 = y * y / 100000;
+
+    term = y;
+    res = term;
+
+    for (i = 3; i < 50; i += 2) {
+        term = term * y2 / 100000;
+        u64 div = term / i;
+        res += div;
+        if (div < 10) break;
+    }
+
+    return 2 * res / 1;  // ln(x) * 100000
 }
 
-static void sozecc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
+static u32 ccllcc_ssthresh(struct sock *sk) { return 0; }
+
+static void ccllcc_state(struct sock *sk, u8 new_state) { }
+
+static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
-    pr_info("soze: cong avoid\n");
     struct tcp_sock *tp = tcp_sk(sk);
-    struct sozecc *ca = inet_csk_ca(sk);
-
-    // debug
-    soze_debug_print(sk);
-
-    u32 cwnd;
-    u64 obs_rate_kbps;
-    u32 obs_delay_us;
-    u64 r_link_kbps;
-
+    struct ccllcc *ca = inet_csk_ca(sk);
+    
     if (!tcp_is_cwnd_limited(sk))
         return;
     
-    if (ca->curr_rtt == 0 || ca->min_rtt == 0) {
-        pr_warn("soze: skip cong_avoid due to invalid RTT (curr=%u, min=%u)\n",
-            ca->curr_rtt, ca->min_rtt);
-        return;
-    }
-
-    cwnd = tp->snd_cwnd;
-    ca->last_cwnd = cwnd;
+    // Get ATU information
+    u32 atu_numer, atu_denom;
+    u64 maxATU_kbps = 1000;  // Default fallback
     
-    obs_rate_kbps = cwnd * 1500 * 8 * 1000 * 1000 / ca->curr_rtt;
-    obs_delay_us = ca->curr_rtt - ca->min_rtt;
-    r_link_kbps = exp_approx(ln10e5_max_rate - obs_delay_us * (ln10e5_max_rate - ln10e5_min_rate) / delay_scale);
-    
-    if (obs_rate_kbps == 0) {
-        pr_warn("soze: skip update due to obs_rate_kbps=0\n");
-        return;
-    }
-    ca->cwndx10e3 = ca->cwndx10e3 * r_link_kbps / obs_rate_kbps;
-    
-    if (ca->cwndx10e3 < 10 * 1000) {
-        ca->cwndx10e3 = 10 * 1000;
+    if (lookup_atu_from_tcpint(sk, &atu_numer, &atu_denom) == 0 && atu_denom > 0) {
+        maxATU_kbps = ((u64)atu_numer * 1000) / atu_denom;
+        
+        // Apply utility function
+        u32 delay_diff = (ca->curr_rtt > ca->min_rtt) ? 
+                        (ca->curr_rtt - ca->min_rtt) : 0;
+        u64 utility = exp_approx(delay_diff);
+        maxATU_kbps = (maxATU_kbps * utility) / 100000;
     }
     
-    tp->snd_cwnd = ca->cwndx10e3 / 1000;
-
-    pr_info("soze: obs_rate=%llu, r_link=%llu, cwndx10e3=%u\n",
-        obs_rate_kbps, r_link_kbps, ca->cwndx10e3);
-
+    // Rest of your C2L2 algorithm...
+    u64 current_rate_kbps = ((u64)tp->snd_cwnd * 1500 * 8 * 1000) / ca->curr_rtt;
+    u64 cwnd = (current_rate_kbps * ca->curr_rtt) / (1500 * 8 * 1000);
+    
+    u64 per_packet_update = (cwnd > 0) ? (maxATU_kbps * 1000) / cwnd : maxATU_kbps;
+    current_rate_kbps = (current_rate_kbps * per_packet_update) / 1000;
+    
+    tp->snd_cwnd = max_t(u32, (u32)((current_rate_kbps * ca->curr_rtt) / (1500 * 8 * 1000)), 2U);
 }
 
-static u32 sozecc_ssthresh(struct sock *sk) { return 0; }
+static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
 
-static void sozecc_state(struct sock *sk, u8 new_state) { }
-
-static void sozecc_acked(struct sock *sk, const struct ack_sample *sample)
-{
-    pr_info("soze: ack\n");
-    struct sozecc *ca = inet_csk_ca(sk);
-    u32 rtt;
+    pr_info("c2l2: ack\n");
+    struct ccllcc *ca = inet_csk_ca(sk);
 
     /* Some calls are for duplicates without timetamps */
     if (sample->rtt_us < 0)
@@ -167,42 +193,78 @@ static void sozecc_acked(struct sock *sk, const struct ack_sample *sample)
     if (rtt == 0)
         rtt = 1;
 
-    ca->curr_rtt = rtt;
+    u32 atu;
+    u32 cwnd;
+    /* Assume there exist max_atu paremeter*/
+    atu = ca->max_atu;
 
-    /* first time call or link delay decreases */
-    if (ca->min_rtt == 0 || ca->min_rtt > rtt)
-        ca->min_rtt = rtt;
+    /* calculate update*/
+    // TODO log approx ??
+    u64 update;
+    if (atu < atu_frac_lb) {
+        update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_frac / k_p_scale);
+    }
+    else if (atu >= atu_frac_lb && atu <= atu_frac_lb + atu_frac_range) {
+        update = exp_approx(
+            (ln10e5_max_rate 
+                - log_approx(ca->rate_kbps * FPS)
+                + log_approx(exp_approx((ln10e5_min_rate - ln10e5_max_rate) * (atu - atu_frac_lb) / atu_frac_range) * FPS)
+            ) * k_p_frac / k_p_scale);
+    }
+    else if (atu > atu_frac_lb + atu_frac_range && atu <= atu_scale) {
+        update = exp_approx(
+            (ln10e5_min_rate 
+                - log_approx(ca->rate_kbps * FPS)
+                + log_approx((atu_scale - atu) * FPS / (atu_scale - atu_frac_lb - atu_frac_range))
+            ) * k_p_frac / k_p_scale);
+    }
+
+    /* calculate cwnd */
+    cwnd = ca->rate_kbps * rtt / (sample->acked * 8 * 1000 * 1000);
+
+    /* calculare per_packet_update */
+    u64 per_pkt_udpate;
+    per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
+
+    /* update r */
+    u64 rate_kbps = ca->rate_kbps;
+    rate_kbps = rate_kbp * per_pkt_update;
+    ca->rate_kbps = rate_kbps;
+    tp->snd_cwnd = ca->rate_kbps * rtt / (sample->acked * 8 * 1000 * 1000);
 }
 
-static struct tcp_congestion_ops soze __read_mostly = {
-    .init       = sozecc_init,
-    .ssthresh   = sozecc_ssthresh,
-    .cong_avoid = sozecc_cong_avoid,
-    .set_state  = sozecc_state,
+static struct tcp_congestion_ops ccll __read_mostly = {
+    .init       = ccllcc_init,
+    .ssthresh   = ccllcc_ssthresh,
+    .cong_avoid = ccllcc_cong_avoid,
+    .set_state  = ccllcc_state,
     .undo_cwnd  = tcp_reno_undo_cwnd,
-    .cwnd_event = sozecc_cwnd_event,
-    .pkts_acked = sozecc_acked,
+    .cwnd_event = ccllcc_cwnd_event,
+    .pkts_acked = ccllcc_acked,
     .owner      = THIS_MODULE,
-    .name       = "soze",
+    .name       = "ccll",
 };
 
-static int __init soze_register(void)
+
+static int __init ccll_register(void)
 {
-    pr_info("soze: register\n");
-    BUILD_BUG_ON(sizeof(struct sozecc) > ICSK_CA_PRIV_SIZE);
-    return tcp_register_congestion_control(&soze);
+    pr_info("c2l2: register\n");
+    BUILD_BUG_ON(sizeof(struct ccllcc) > ICSK_CA_PRIV_SIZE);
+    return tcp_register_congestion_control(&ccll);
 }
 
-static void __exit soze_unregister(void)
+
+static void __exit ccll_unregister(void)
 {
-    pr_info("soze: unregister\n");
-    tcp_unregister_congestion_control(&soze);
+    pr_info("c2l2: unregister\n");
+    tcp_unregister_congestion_control(&ccll);
 }
 
-module_init(soze_register);
-module_exit(soze_unregister);
+
+module_init(ccll_register);
+module_exit(ccll_unregister);
 
 MODULE_AUTHOR("Weitao Wang");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Soze Congestion Control");
+MODULE_DESCRIPTION("C2L2 Congestion Control");
 MODULE_VERSION("1.0");

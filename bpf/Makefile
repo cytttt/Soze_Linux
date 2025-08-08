@@ -7,7 +7,7 @@ TCP_INT_DIR ?= tcp-int/code
 HAVE_WRITABLE_SK_PACING ?= 0
 USE_SWLAT_AS_TIMESTAMP ?= 0
 
-BPF_OBJS := powertcp.bpf.o
+BPF_OBJS := powertcp.bpf.o atu_extractor.bpf.o
 BPF_DEPS := $(BPF_OBJS:.o=.d)
 BPF_SKELS := $(BPF_OBJS:.bpf.o=.skel.h)
 PROGS := powertcp
@@ -71,3 +71,12 @@ tcp_int:
 ifneq ($(MAKECMDGOALS),clean)
 -include $(BPF_DEPS) $(PROG_DEPS)
 endif
+
+load-atu: atu_extractor.bpf.o
+	$(BPFTOOL) prog load atu_extractor.bpf.o /sys/fs/bpf/atu_extractor
+	$(BPFTOOL) net attach tc dev eth0 /sys/fs/bpf/atu_extractor
+
+clean-atu:
+	$(BPFTOOL) net detach tc dev eth0
+	rm -f /sys/fs/bpf/atu_extractor
+	rm -f /sys/fs/bpf/atu_flow_map
