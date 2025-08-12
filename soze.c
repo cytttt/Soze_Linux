@@ -40,6 +40,16 @@
 #include <linux/ktime.h>      // Kernel time functions
 #include <linux/bpf.h>        // eBPF support
 #include <linux/filter.h>     // Packet filtering support
+#include <linux/hashtable.h>  // Hash table support
+#include <linux/slab.h>       // kmalloc and kfree
+#include <linux/fs.h>         // file_operations
+#include <linux/uaccess.h>    // copy_from_user
+#include <linux/net.h>        // sock related
+#include <linux/in.h>         // IPPROTO_TCP
+#include <linux/socket.h>     // socket related
+#include <net/sock.h>         // sock structures
+#include <linux/inet.h>       // in_aton
+
 // static u64 min_rate __read_mostly = 1000000;     // Kbps
 // static u64 max_rate __read_mostly = 100000000;   // Kbps
 static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
@@ -69,7 +79,7 @@ MODULE_PARM_DESC(atu_enabled, "Enable ATU-based congestion control");
 module_param(atu_timeout_ms, uint, 0644);
 MODULE_PARM_DESC(atu_timeout_ms, "ATU data timeout in milliseconds");
 
-// just use soze value
+// just use ccll value
 // static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
 // static u64 ln10e5_max_rate __read_mostly = 1842068;     // ln(Kbps) * 100,000
 
@@ -205,119 +215,180 @@ struct atu_state {
     u32 valid;        // Whether the data is valid
 };
 
-// External reference to the BPF map (similar to TCP-INT)
-// This will be resolved when eBPF program is loaded
-extern struct bpf_map map_atu_state __weak;
+// Per-flow key for hash table (IPv4 5-tuple)
+struct atu_flow_key {
+    __be32 saddr;
+    __be32 daddr;
+    __be16 sport;
+    __be16 dport;
+    u8 protocol;
+};
 
-/*
- * Helper function to try accessing eBPF SK_STORAGE map
- * 
- * INTEGRATION STEPS FOR COMPLETE eBPF SUPPORT:
- * 
- * 1. Load eBPF Program:
- *    sudo ip link set dev <interface> xdp obj bpf/atu_extractor.bpf.o sec xdp
- *    sudo bpftool prog load bpf/atu_extractor.bpf.o /sys/fs/bpf/atu_sockops
- *    sudo bpftool cgroup attach /sys/fs/cgroup/unified sockops pinned /sys/fs/bpf/atu_sockops
- * 
- * 2. Access Methods (choose one):
- *    a) Direct SK_STORAGE access (if available in kernel context):
- *       return bpf_sk_storage_get(&map_atu_state, sk, NULL, 0);
- *    
- *    b) Pinned map access:
- *       - Pin the map: bpf_obj_pin(map_fd, "/sys/fs/bpf/atu_state_map")
- *       - Access via file descriptor in kernel module
- *    
- *    c) Shared memory approach:
- *       - Use a shared data structure between eBPF and kernel module
- *       - Update via eBPF program, read via kernel module
- * 
- * 3. Current Status:
- *    - eBPF program (atu_extractor.bpf.c) is ready
- *    - Kernel module has fallback mechanism
- *    - Integration pending proper map access implementation
- */
-static struct atu_state *try_get_atu_from_bpf(struct sock *sk)
+// Per-flow ATU entry stored in hash table
+struct atu_flow_entry {
+    struct hlist_node hnode;
+    struct atu_flow_key key;
+    struct atu_state state;
+};
+
+// Hash table for per-flow ATU data
+#define ATU_FLOW_HASH_BITS 10
+static DEFINE_HASHTABLE(atu_flow_table, ATU_FLOW_HASH_BITS);
+
+// Spinlock to protect hash table
+static DEFINE_SPINLOCK(atu_flow_lock);
+
+// Helper function to compare keys
+static bool atu_flow_key_equal(const struct atu_flow_key *k1, const struct atu_flow_key *k2)
 {
-    // TODO: Implement actual eBPF map access
-    // For now, return NULL to use fallback mechanism
+    return (k1->saddr == k2->saddr) &&
+           (k1->daddr == k2->daddr) &&
+           (k1->sport == k2->sport) &&
+           (k1->dport == k2->dport) &&
+           (k1->protocol == k2->protocol);
+}
+
+// Helper function to compute hash for key
+static u32 atu_flow_key_hash(const struct atu_flow_key *key)
+{
+    u32 hash = jhash_1word((u32)key->saddr, 0);
+    hash = jhash_1word((u32)key->daddr, hash);
+    hash = jhash_1word((u32)key->sport << 16 | key->dport, hash);
+    hash = jhash_1word((u32)key->protocol, hash);
+    return hash;
+}
+
+// Helper function to find entry in hash table
+static struct atu_flow_entry *atu_flow_find(const struct atu_flow_key *key)
+{
+    struct atu_flow_entry *entry;
+    u32 hash = atu_flow_key_hash(key);
+    hash_for_each_possible(atu_flow_table, entry, hnode, hash) {
+        if (atu_flow_key_equal(&entry->key, key))
+            return entry;
+    }
     return NULL;
 }
 
-// Function to retrieve ATU from SK_STORAGE (similar to TCP-INT approach)
+// Helper function to update or insert entry in hash table
+static void atu_flow_update(const struct atu_flow_key *key, const struct atu_state *state)
+{
+    unsigned long flags;
+    struct atu_flow_entry *entry;
+
+    spin_lock_irqsave(&atu_flow_lock, flags);
+    entry = atu_flow_find(key);
+    if (entry) {
+        entry->state = *state;
+    } else {
+        entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
+        if (entry) {
+            entry->key = *key;
+            entry->state = *state;
+            hash_add(atu_flow_table, &entry->hnode, atu_flow_key_hash(key));
+        }
+    }
+    spin_unlock_irqrestore(&atu_flow_lock, flags);
+}
+
+// Extract 5-tuple key from sock (IPv4 only)
+static bool get_atu_flow_key(struct sock *sk, struct atu_flow_key *key)
+{
+    struct inet_sock *inet = inet_sk(sk);
+    struct tcp_sock *tp = tcp_sk(sk);
+
+    if (!sk || !inet)
+        return false;
+
+    if (sk->sk_family != AF_INET)
+        return false;
+
+    key->saddr = inet->inet_saddr;
+    key->daddr = inet->inet_daddr;
+    key->sport = inet->inet_sport;  // network byte order
+    key->dport = tp->inet_dport;    // network byte order
+    key->protocol = IPPROTO_TCP;
+
+    return true;
+}
+
+/*
+ * Helper function to try accessing eBPF SK_STORAGE map or per-flow hash table
+ * 1. eBPF simulation via sk_user_data (if valid).
+ * 2. Per-flow hash table maintained by the module.
+ */
+static struct atu_state *try_get_atu_from_bpf(struct sock *sk)
+{
+    struct atu_state *atu_info = NULL;
+    struct atu_flow_key key;
+    struct atu_flow_entry *entry;
+    unsigned long flags;
+
+    // 1. Try direct SK_STORAGE access simulation
+    if (sk->sk_user_data) {
+        atu_info = (struct atu_state *)sk->sk_user_data;
+        if (atu_info->valid)
+            return atu_info;
+    }
+
+    // 2. Lookup per-flow hash table
+    if (!get_atu_flow_key(sk, &key))
+        return NULL;
+
+    spin_lock_irqsave(&atu_flow_lock, flags);
+    entry = atu_flow_find(&key);
+    if (entry && entry->state.valid) {
+        atu_info = &entry->state;
+        spin_unlock_irqrestore(&atu_flow_lock, flags);
+        return atu_info;
+    }
+    spin_unlock_irqrestore(&atu_flow_lock, flags);
+
+    return NULL;
+}
+
+// Function to retrieve ATU from SK_STORAGE or per-flow hash table
 static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 {
     struct atu_state *atu_info;
     u32 scaled_atu;
     u64 current_time;
-    
-    // Try to get ATU state from eBPF SK_STORAGE map
+
     atu_info = try_get_atu_from_bpf(sk);
-    
-    // Fallback: If no eBPF data available, use default values
-    if (!atu_info) {
-        // Default ATU values when eBPF data is not available
-        // This ensures the congestion control algorithm can still function
-        static struct atu_state default_atu = {
-            .numer = 8000,   // 80% default utilization
-            .denom = 10000,  // Scale factor
-            .timestamp = 0,
-            .valid = 1
-        };
-        atu_info = &default_atu;
-        
-        // Update timestamp for freshness check
-        atu_info->timestamp = ktime_get_ns();
-        
-        // Log that we're using default values (only once per socket)
-        static bool logged_fallback = false;
-        if (!logged_fallback) {
-            pr_info("ccll: Using default ATU values (eBPF data not available)\n");
-            logged_fallback = true;
-        }
-    }
-    
+
+    // If no ATU or not valid, return default constant (do not create dummy entry)
     if (!atu_info || !atu_info->valid) {
-        // No ATU data available, return default
         *atu_value = 8000; // 80% default
         return 0;
     }
-    
+
     // Check if ATU is enabled
     if (!atu_enabled) {
-        *atu_value = 8000; // Default when ATU is disabled
+        *atu_value = 8000;
         return 0;
     }
-    
+
     // Check if data is fresh (configurable timeout)
     current_time = ktime_get_ns();
-    u64 timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // Convert ms to ns
-    if (atu_info->timestamp && 
+    u64 timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // ms to ns
+    if (atu_info->timestamp &&
         (current_time - atu_info->timestamp) > timeout_ns) {
-        // Stale data, use default
         *atu_value = 8000;
-        pr_debug("ccll: ATU data stale (age: %llu ms), using default\n", 
-                (current_time - atu_info->timestamp) / 1000000ULL);
         return 0;
     }
-    
+
     // Validate denominator
     if (atu_info->denom == 0) {
-        *atu_value = 8000; // Default on invalid data
+        *atu_value = 8000;
         return 0;
     }
-    
-    // Calculate scaled ATU: (numer/denom) * atu_scale
-    // Use 64-bit arithmetic to avoid overflow
-    scaled_atu = (u32)div64_u64((u64)atu_info->numer * atu_scale, 
-                                atu_info->denom);
-    
-    // Clamp to reasonable bounds (10% to 100%)
+
+    scaled_atu = (u32)div64_u64((u64)atu_info->numer * atu_scale, atu_info->denom);
     if (scaled_atu < (atu_scale / 10)) {
-        scaled_atu = atu_scale / 10; // Minimum 10%
+        scaled_atu = atu_scale / 10;
     } else if (scaled_atu > atu_scale) {
-        scaled_atu = atu_scale; // Maximum 100%
+        scaled_atu = atu_scale;
     }
-    
     *atu_value = scaled_atu;
     return 0;
 }
@@ -326,22 +397,20 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
     struct tcp_sock *tp = tcp_sk(sk);
     struct ccllcc *ca = inet_csk_ca(sk);
-    
+
     if (!tcp_is_cwnd_limited(sk))
         return;
-    
+
     // Get current RTT
     u32 rtt = ca->curr_rtt;
     if (rtt == 0)
         rtt = 1;
-    
-    // Get ATU from max_atu_h header
+
+    // Always get latest ATU; do not fallback to cached max_atu
     u32 atu;
-    if (lookup_atu_from_header(sk, &atu) != 0) {
-        atu = ca->max_atu;  // Use cached value if header not available
-    }
-    ca->max_atu = atu;  // Update cached value
-    
+    lookup_atu_from_header(sk, &atu);
+    ca->max_atu = atu;
+
     // C2L2 Algorithm: Calculate update based on ATU
     u64 update;
     if (atu < atu_frac_lb) {
@@ -349,31 +418,31 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
     }
     else if (atu >= atu_frac_lb && atu <= atu_frac_lb + atu_frac_range) {
         update = exp_approx(
-            (ln10e5_max_rate 
+            (ln10e5_max_rate
                 - log_approx(ca->rate_kbps * FPS)
                 + log_approx(exp_approx((ln10e5_min_rate - ln10e5_max_rate) * (atu - atu_frac_lb) / atu_frac_range) * FPS)
             ) * k_p_fraction / k_p_scale);
     }
     else if (atu > atu_frac_lb + atu_frac_range && atu <= atu_scale) {
         update = exp_approx(
-            (ln10e5_min_rate 
+            (ln10e5_min_rate
                 - log_approx(ca->rate_kbps * FPS)
                 + log_approx((atu_scale - atu) * FPS / (atu_scale - atu_frac_lb - atu_frac_range))
             ) * k_p_fraction / k_p_scale);
     } else {
-        update = FPS;  // Default update if ATU out of range
+        update = FPS;
     }
-    
+
     // Calculate cwnd from current rate
     u32 cwnd = (ca->rate_kbps * rtt) / (1500 * 8 * 1000);
     if (cwnd == 0) cwnd = 1;
-    
+
     // Calculate per_packet_update
     u64 per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
-    
+
     // Update rate
     ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
-    
+
     // Set new congestion window
     tp->snd_cwnd = max_t(u32, (ca->rate_kbps * rtt) / (1500 * 8 * 1000), 2U);
 }
@@ -415,12 +484,99 @@ static struct tcp_congestion_ops ccll __read_mostly = {
     .name       = "ccll",
 };
 
+// /dev/ccll_ctl device implementation
+
+#define ccll_CTL_DEV_NAME "ccll_ctl"
+static int ccll_ctl_major = 0;
+
+struct ccll_ctl_update {
+    __be32 saddr;
+    __be32 daddr;
+    __be16 sport;
+    __be16 dport;
+    u32 numer;
+    u32 denom;
+    u64 timestamp; // in ns
+    u32 valid;
+};
+
+static ssize_t ccll_ctl_write(struct file *file, const char __user *buf,
+                              size_t count, loff_t *ppos)
+{
+    struct ccll_ctl_update update;
+    struct atu_flow_key key;
+    struct atu_state state;
+
+    if (count != sizeof(update))
+        return -EINVAL;
+
+    if (copy_from_user(&update, buf, sizeof(update)))
+        return -EFAULT;
+
+    // Fill key and state structs
+    key.saddr = update.saddr;
+    key.daddr = update.daddr;
+    key.sport = update.sport;
+    key.dport = update.dport;
+    key.protocol = IPPROTO_TCP;
+
+    state.numer = update.numer;
+    state.denom = update.denom;
+    state.timestamp = update.timestamp;
+    state.valid = update.valid;
+
+    atu_flow_update(&key, &state);
+
+    return sizeof(update);
+}
+
+static const struct file_operations ccll_ctl_fops = {
+    .owner = THIS_MODULE,
+    .write = ccll_ctl_write,
+};
+
+// Module init and exit for /dev/ccll_ctl
+static int __init ccll_ctl_init(void)
+{
+    int ret;
+
+    ccll_ctl_major = register_chrdev(0, ccll_CTL_DEV_NAME, &ccll_ctl_fops);
+    if (ccll_ctl_major < 0) {
+        pr_err("ccll: failed to register ccll_ctl char device\n");
+        return ccll_ctl_major;
+    }
+    pr_info("ccll: ccll_ctl char device registered with major %d\n", ccll_ctl_major);
+    return 0;
+}
+
+static void ccll_ctl_exit(void)
+{
+    unregister_chrdev(ccll_ctl_major, ccll_CTL_DEV_NAME);
+    pr_info("ccll: ccll_ctl char device unregistered\n");
+
+    // Cleanup hash table entries
+    {
+        struct atu_flow_entry *entry;
+        struct hlist_node *tmp;
+        int bkt;
+        unsigned long flags;
+
+        spin_lock_irqsave(&atu_flow_lock, flags);
+        hash_for_each_safe(atu_flow_table, bkt, tmp, entry, hnode) {
+            hash_del(&entry->hnode);
+            kfree(entry);
+        }
+        spin_unlock_irqrestore(&atu_flow_lock, flags);
+    }
+}
 
 static int __init ccll_register(void)
 {
+    int ret;
+
     pr_info("c2l2: register\n");
     BUILD_BUG_ON(sizeof(struct ccllcc) > ICSK_CA_PRIV_SIZE);
-    int ret = tcp_register_congestion_control(&ccll);
+    ret = tcp_register_congestion_control(&ccll);
     if (ret == 0) {
         pr_info("ccll: C2L2 Congestion Control registered\n");
         pr_info("ccll: ATU integration %s (timeout: %u ms)\n", 
@@ -428,13 +584,21 @@ static int __init ccll_register(void)
         pr_info("ccll: ATU scale: %u, bounds: %u%% - 100%%\n", 
                 atu_scale, atu_scale / 10 / (atu_scale / 100));
     }
-    return ret;
+
+    ret = ccll_ctl_init();
+    if (ret < 0) {
+        tcp_unregister_congestion_control(&ccll);
+        return ret;
+    }
+
+    return 0;
 }
 
 
 static void __exit ccll_unregister(void)
 {
     pr_info("c2l2: unregister\n");
+    ccll_ctl_exit();
     tcp_unregister_congestion_control(&ccll);
     pr_info("ccll: C2L2 Congestion Control unregistered\n");
 }

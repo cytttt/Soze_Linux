@@ -4,7 +4,7 @@ ifneq ($(KERNELRELEASE),)
 # define_trace.h fails to find our trace header.
 ccflags-y := -I$(src)
 
-obj-m := soze.o
+obj-m := ccll.o
 
 else
 
@@ -22,7 +22,7 @@ dkms_install:
 
 .PHONY: dkms_uninstall
 dkms_uninstall:
-	dkms remove --all soze/$(dkms_package_version)
-	$(RM) -r /usr/src/soze-$(dkms_package_version)
+	dkms remove --all ccll/$(dkms_package_version)
+	$(RM) -r /usr/src/ccll-$(dkms_package_version)
 
 endif
