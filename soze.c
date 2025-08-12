@@ -16,16 +16,30 @@
  * this behaves the same as the original Reno.
  */
 
-#include <linux/kernel.h>
-#include <linux/types.h>
-#include <linux/skbuff.h>
-#include <linux/vmalloc.h>
-#include <linux/module.h>
-#include <net/tcp.h>
-#include <net/inet_sock.h>
-#include <linux/math64.h>
-#include <linux/printk.h>
-#include <linux/ktime.h>
+/*
+ * IDE CONFIGURATION NOTE:
+ * The following include errors are expected in IDE environments that don't have
+ * Linux kernel headers configured. These headers are available during kernel
+ * module compilation with proper kernel build environment.
+ * 
+ * To resolve IDE errors, configure your IDE with kernel header paths:
+ * - Kernel headers location: /lib/modules/$(uname -r)/build/include
+ * - Or use kernel source tree: /usr/src/linux/include
+*/
+
+// Linux kernel headers (available during kernel module compilation)
+#include <linux/kernel.h>     // Core kernel definitions
+#include <linux/types.h>      // Basic type definitions
+#include <linux/skbuff.h>     // Socket buffer structures
+#include <linux/vmalloc.h>    // Virtual memory allocation
+#include <linux/module.h>     // Kernel module support
+#include <net/tcp.h>          // TCP protocol definitions
+#include <net/inet_sock.h>    // Internet socket structures
+#include <linux/math64.h>     // 64-bit math operations
+#include <linux/printk.h>     // Kernel logging functions
+#include <linux/ktime.h>      // Kernel time functions
+#include <linux/bpf.h>        // eBPF support
+#include <linux/filter.h>     // Packet filtering support
 // static u64 min_rate __read_mostly = 1000000;     // Kbps
 // static u64 max_rate __read_mostly = 100000000;   // Kbps
 static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
@@ -43,6 +57,18 @@ static u32 atu_frac_lb __read_mostly = 9200; // X
 static u32 atu_frac_range __read_mostly = 500; // Y
 
 static u32 ccll_weight __read_mostly = 1;
+
+// ATU integration parameters
+static bool atu_enabled __read_mostly = true;
+static u32 atu_timeout_ms __read_mostly = 100;  // ATU data timeout in milliseconds
+
+// Module parameters for ATU configuration
+module_param(atu_enabled, bool, 0644);
+MODULE_PARM_DESC(atu_enabled, "Enable ATU-based congestion control");
+
+module_param(atu_timeout_ms, uint, 0644);
+MODULE_PARM_DESC(atu_timeout_ms, "ATU data timeout in milliseconds");
+
 // just use soze value
 // static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
 // static u64 ln10e5_max_rate __read_mostly = 1842068;     // ln(Kbps) * 100,000
@@ -180,7 +206,42 @@ struct atu_state {
 };
 
 // External reference to the BPF map (similar to TCP-INT)
-extern struct bpf_map map_atu_state;
+// This will be resolved when eBPF program is loaded
+extern struct bpf_map map_atu_state __weak;
+
+/*
+ * Helper function to try accessing eBPF SK_STORAGE map
+ * 
+ * INTEGRATION STEPS FOR COMPLETE eBPF SUPPORT:
+ * 
+ * 1. Load eBPF Program:
+ *    sudo ip link set dev <interface> xdp obj bpf/atu_extractor.bpf.o sec xdp
+ *    sudo bpftool prog load bpf/atu_extractor.bpf.o /sys/fs/bpf/atu_sockops
+ *    sudo bpftool cgroup attach /sys/fs/cgroup/unified sockops pinned /sys/fs/bpf/atu_sockops
+ * 
+ * 2. Access Methods (choose one):
+ *    a) Direct SK_STORAGE access (if available in kernel context):
+ *       return bpf_sk_storage_get(&map_atu_state, sk, NULL, 0);
+ *    
+ *    b) Pinned map access:
+ *       - Pin the map: bpf_obj_pin(map_fd, "/sys/fs/bpf/atu_state_map")
+ *       - Access via file descriptor in kernel module
+ *    
+ *    c) Shared memory approach:
+ *       - Use a shared data structure between eBPF and kernel module
+ *       - Update via eBPF program, read via kernel module
+ * 
+ * 3. Current Status:
+ *    - eBPF program (atu_extractor.bpf.c) is ready
+ *    - Kernel module has fallback mechanism
+ *    - Integration pending proper map access implementation
+ */
+static struct atu_state *try_get_atu_from_bpf(struct sock *sk)
+{
+    // TODO: Implement actual eBPF map access
+    // For now, return NULL to use fallback mechanism
+    return NULL;
+}
 
 // Function to retrieve ATU from SK_STORAGE (similar to TCP-INT approach)
 static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
@@ -189,19 +250,31 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     u32 scaled_atu;
     u64 current_time;
     
-    // Get ATU state from socket storage (similar to TCP-INT)
-    // In real implementation, this would use bpf_sk_storage_get
-    // atu_info = bpf_sk_storage_get(&map_atu_state, sk, NULL, 0);
+    // Try to get ATU state from eBPF SK_STORAGE map
+    atu_info = try_get_atu_from_bpf(sk);
     
-    // For now, simulate ATU data retrieval
-    // In production, this would come from the eBPF SK_STORAGE map
-    static struct atu_state simulated_atu = {
-        .numer = 8000,
-        .denom = 10000,
-        .timestamp = 0,
-        .valid = 1
-    };
-    atu_info = &simulated_atu;
+    // Fallback: If no eBPF data available, use default values
+    if (!atu_info) {
+        // Default ATU values when eBPF data is not available
+        // This ensures the congestion control algorithm can still function
+        static struct atu_state default_atu = {
+            .numer = 8000,   // 80% default utilization
+            .denom = 10000,  // Scale factor
+            .timestamp = 0,
+            .valid = 1
+        };
+        atu_info = &default_atu;
+        
+        // Update timestamp for freshness check
+        atu_info->timestamp = ktime_get_ns();
+        
+        // Log that we're using default values (only once per socket)
+        static bool logged_fallback = false;
+        if (!logged_fallback) {
+            pr_info("ccll: Using default ATU values (eBPF data not available)\n");
+            logged_fallback = true;
+        }
+    }
     
     if (!atu_info || !atu_info->valid) {
         // No ATU data available, return default
@@ -209,12 +282,21 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
         return 0;
     }
     
-    // Check if data is fresh (within last 100ms)
+    // Check if ATU is enabled
+    if (!atu_enabled) {
+        *atu_value = 8000; // Default when ATU is disabled
+        return 0;
+    }
+    
+    // Check if data is fresh (configurable timeout)
     current_time = ktime_get_ns();
+    u64 timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // Convert ms to ns
     if (atu_info->timestamp && 
-        (current_time - atu_info->timestamp) > 100000000ULL) {
+        (current_time - atu_info->timestamp) > timeout_ns) {
         // Stale data, use default
         *atu_value = 8000;
+        pr_debug("ccll: ATU data stale (age: %llu ms), using default\n", 
+                (current_time - atu_info->timestamp) / 1000000ULL);
         return 0;
     }
     
@@ -338,7 +420,15 @@ static int __init ccll_register(void)
 {
     pr_info("c2l2: register\n");
     BUILD_BUG_ON(sizeof(struct ccllcc) > ICSK_CA_PRIV_SIZE);
-    return tcp_register_congestion_control(&ccll);
+    int ret = tcp_register_congestion_control(&ccll);
+    if (ret == 0) {
+        pr_info("ccll: C2L2 Congestion Control registered\n");
+        pr_info("ccll: ATU integration %s (timeout: %u ms)\n", 
+                atu_enabled ? "enabled" : "disabled", atu_timeout_ms);
+        pr_info("ccll: ATU scale: %u, bounds: %u%% - 100%%\n", 
+                atu_scale, atu_scale / 10 / (atu_scale / 100));
+    }
+    return ret;
 }
 
 
@@ -346,6 +436,7 @@ static void __exit ccll_unregister(void)
 {
     pr_info("c2l2: unregister\n");
     tcp_unregister_congestion_control(&ccll);
+    pr_info("ccll: C2L2 Congestion Control unregistered\n");
 }
 
 
