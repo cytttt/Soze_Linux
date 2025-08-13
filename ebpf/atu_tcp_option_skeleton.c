@@ -449,7 +449,7 @@ int tx_ingress_parse_ack_opt(struct __sk_buff *skb)
             }
 #endif
             /* Mirror to per-flow map for userspace daemon */
-            struct flow4_key fk = {}
+            struct flow4_key fk = {};
             fk.saddr = saddr;
             fk.daddr = daddr;
             fk.sport = sport;
