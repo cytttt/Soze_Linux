@@ -28,6 +28,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/tcp.h>
+#include <linux/in.h>
 
 // ----- Configurable constants -----
 #define ATU_TCP_OPT_KIND   253        // Experimental/Private Use
@@ -184,10 +185,12 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
 // -----------------------------------------------------------------------------
 // Receiver egress (TC): if pure ACK (no payload), inject TCP option with ATU
 // -----------------------------------------------------------------------------
-static __always_inline bool is_pure_ack(const struct tcphdr *tcp, int plen) {
-    // Most data packets set ACK flag too; require zero payload.
-    if (!tcp->ack) return false;
-    if (tcp->syn || tcp->fin || tcp->rst || tcp->psh) return false;
+static __always_inline int is_pure_ack(const struct tcphdr *tcp, int plen) {
+    /* return 1 if pure ACK, else 0 */
+    if (!tcp->ack)
+        return 0;
+    if (tcp->syn || tcp->fin || tcp->rst || tcp->psh)
+        return 0;
     return plen == 0;
 }
 
@@ -242,8 +245,10 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     if (parse_eth(&data, &data_end, &ethp) < 0) return BPF_OK;
     if (ethp != ETH_P_IP) return BPF_OK;
     if (parse_ipv4(&data, &data_end, &ip) < 0) return BPF_OK;
-    void *tcp_start = data;
     if (parse_tcp(&data, &data_end, &tcp) < 0) return BPF_OK;
+
+    __u32 ip_off  = (unsigned long)ip  - (unsigned long)skb->data;
+    __u32 tcp_off = (unsigned long)tcp - (unsigned long)skb->data;
 
     // Compose the option
     __u8 opt_buf[ATU_TCP_OPT_LEN] = {0};
@@ -255,7 +260,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     __builtin_memcpy(&opt_buf[6], &denom_net, sizeof(__u32));
 
     // Store bytes at start of TCP options area (immediately after struct tcphdr)
-    if (bpf_skb_store_bytes(skb, skb->transport_header + sizeof(struct tcphdr),
+    if (bpf_skb_store_bytes(skb, tcp_off + sizeof(struct tcphdr),
                             opt_buf, ATU_TCP_OPT_LEN, 0)) {
         return BPF_OK;
     }
@@ -267,27 +272,27 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     // Write back doff (first 4 bits of th->doff) — need to rewrite the two bytes at offset 12..13
     struct tcphdr tcp_new = *tcp;
     tcp_new.doff = new_doff_words;
-    if (bpf_skb_store_bytes(skb, skb->transport_header, &tcp_new, sizeof(tcp_new), 0))
+    if (bpf_skb_store_bytes(skb, tcp_off, &tcp_new, sizeof(tcp_new), 0))
         return BPF_OK;
 
     // Update IP total length
     __u16 old_tot = bpf_ntohs(ip->tot_len);
     __u16 new_tot = old_tot + ATU_TCP_OPT_LEN;
 
-    // l3 checksum fixup
-    bpf_l3_csum_replace(skb, skb->network_header + offsetof(struct iphdr, check),
-                        ~0, ~0, BPF_F_PSEUDO_HDR); // placeholder to force recalc
-
-    // Update ip->tot_len
     __u16 new_tot_be = bpf_htons(new_tot);
-    bpf_skb_store_bytes(skb, skb->network_header + offsetof(struct iphdr, tot_len),
+    bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
                         &new_tot_be, sizeof(new_tot_be), 0);
 
-    // TCP checksum fixup: mark for recompute (cheaper to clear and let stack fix?),
-    // but in TC, you should update incrementally. Here we do a simple clear to 0 and let NIC/stack handle if supported.
-    __u16 zero = 0;
-    bpf_skb_store_bytes(skb, skb->transport_header + offsetof(struct tcphdr, check),
-                        &zero, sizeof(zero), 0);
+    // Fix IPv4 header checksum for tot_len change
+    bpf_l3_csum_replace(skb,
+                        ip_off + offsetof(struct iphdr, check),
+                        (__be32)ip->tot_len, (__be32)new_tot_be,
+                        sizeof(__u16));
+
+    // Mark TCP checksum dirty so stack/NIC will recompute
+    bpf_l4_csum_replace(skb,
+                        tcp_off + offsetof(struct tcphdr, check),
+                        0, 0, BPF_F_MARK_MANGLED_0);
 
     return BPF_OK;
 }
