@@ -37,6 +37,14 @@
 #define ATU_PAD2_BYTES     2          // two NOPs (Kind=1) for 32-bit alignment
 #define ATU_WIRE_BYTES     (ATU_TCP_OPT_LEN + ATU_PAD2_BYTES) // total bytes we actually insert
 
+// Build feature switches (defaults tuned for RX build)
+#ifndef BUILD_SEND
+#define BUILD_SEND 0   // 0=build receiver-only by default; set to 1 when building sender
+#endif
+#ifndef USE_SK_STORAGE
+#define USE_SK_STORAGE 0  // default off so RX build won't try to create sk_storage
+#endif
+
 // Assume your switch injects a DATA payload TLV like: [type=0xA1][len=8][u32 numer][u32 denom]
 #define SW_TLV_TYPE_ATU    0xA1
 
@@ -76,6 +84,10 @@ struct {
     __uint(max_entries, 16384);
 } rx_flow_atu SEC(".maps");
 
+// NOTE: Build two objects from this file:
+//   - Receiver: clang ... -DBUILD_SEND=0 (default) → no sk_storage/ack_atu_by_flow
+//   - Sender:   clang ... -DBUILD_SEND=1 -DUSE_SK_STORAGE=1 → includes maps & tx parser
+#if defined(BUILD_SEND) && USE_SK_STORAGE
 // Sender side: per-socket storage of latest ATU from ACK
 struct {
     __uint(type, BPF_MAP_TYPE_SK_STORAGE);
@@ -91,6 +103,7 @@ struct {
     __type(value, struct atu_val); // numer/denom (host order)
     __uint(max_entries, 65536);
 } ack_atu_by_flow SEC(".maps");
+#endif
 
 // Utility: parse L2/L3/L4 (IPv4 only in this skeleton)
 static __always_inline int parse_eth(void **data, void **data_end, __u16 *eth_proto) {
@@ -303,6 +316,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     return BPF_OK;
 }
 
+#if defined(BUILD_SEND) && USE_SK_STORAGE
 // -----------------------------------------------------------------------------
 // Sender ingress (TC): parse ACK TCP option and save ATU into sk_storage
 // -----------------------------------------------------------------------------
@@ -347,6 +361,7 @@ int tx_ingress_parse_ack_opt(struct __sk_buff *skb) {
             __u32 numer_host = bpf_ntohl(numer_net);
             __u32 denom_host = bpf_ntohl(denom_net);
 
+#if defined(BUILD_SEND) && USE_SK_STORAGE
             struct sock *sk = (struct sock *)(long)skb->sk;
             if (sk) {
                 struct atu_val *slot = bpf_sk_storage_get(&sk_atu_store, sk, 0,
@@ -356,6 +371,7 @@ int tx_ingress_parse_ack_opt(struct __sk_buff *skb) {
                     slot->denom = denom_host;
                 }
             }
+#endif
             // Mirror to per-flow map for userspace daemon
             struct flow4_key fk = {
                 .saddr = ip->saddr,
@@ -373,3 +389,4 @@ int tx_ingress_parse_ack_opt(struct __sk_buff *skb) {
 
     return BPF_OK;
 }
+#endif

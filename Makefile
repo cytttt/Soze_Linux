@@ -28,8 +28,9 @@ ARCH ?= $(DEFAULT_EBPF_ARCH)
 RECV_IF ?= $(RX_IF)
 SEND_IF ?= $(TX_IF)
 
-EBPF_OBJ := ebpf/atu_tcp_option_skeleton.o
-EBPF_SRC := ebpf/atu_tcp_option_skeleton.c
+EBPF_SRC    := ebpf/atu_tcp_option_skeleton.c
+EBPF_RX_OBJ := ebpf/atu_rx.o
+EBPF_TX_OBJ := ebpf/atu_tx.o
 
 DAEMON_SRC := daemon/ccll_atu_daemon.c
 DAEMON_BIN := ccll_atu_daemon
@@ -47,7 +48,7 @@ BPF_CFLAGS := -O2 -g -target bpf \
               $(BPF_INC_FLAGS) \
               -Wno-address-of-packed-member -Wno-gnu-variable-sized-type-not-at-end
 
-.PHONY: all kmod insmod rmmod ebpf daemon attach attach-recv attach-send pin pin-recv pin-send detach detach-recv detach-send status status-recv status-send clean \
+.PHONY: all kmod insmod rmmod ebpf ebpf-rx ebpf-tx daemon attach attach-recv attach-send pin pin-recv pin-send detach detach-recv detach-send status status-recv status-send clean \
         dkms-add dkms-build dkms-install dkms-remove dkms-reinstall install uninstall
 
 all: kmod ebpf daemon
@@ -61,8 +62,13 @@ insmod: kmod
 rmmod:
 	sudo rmmod ccll || true
 
-ebpf:
-	$(CLANG) $(BPF_CFLAGS) -c $(EBPF_SRC) -o $(EBPF_OBJ)
+ebpf: ebpf-rx ebpf-tx
+
+ebpf-rx:
+	$(CLANG) $(BPF_CFLAGS) -DBUILD_SEND=0 -DUSE_SK_STORAGE=0 -c $(EBPF_SRC) -o $(EBPF_RX_OBJ)
+
+ebpf-tx:
+	$(CLANG) $(BPF_CFLAGS) -DBUILD_SEND=1 -DUSE_SK_STORAGE=1 -c $(EBPF_SRC) -o $(EBPF_TX_OBJ)
 
 daemon:
 	$(CC) -O2 -g -o $(DAEMON_BIN) $(DAEMON_SRC) -lbpf
@@ -72,24 +78,24 @@ attach:
 	sudo tc qdisc add dev $(RX_IF) clsact 2>/dev/null || true
 	sudo tc qdisc add dev $(TX_IF) clsact 2>/dev/null || true
 	# Load TC BPF programs
-	sudo tc filter add dev $(RX_IF) ingress bpf da obj $(EBPF_OBJ) sec tc/rx_ingress_cache_atu || true
-	sudo tc filter add dev $(RX_IF) egress bpf da obj $(EBPF_OBJ) sec tc/rx_egress_add_ack_opt || true
-	sudo tc filter add dev $(TX_IF) ingress bpf da obj $(EBPF_OBJ) sec tc/tx_ingress_parse_ack_opt || true
+	sudo tc filter add dev $(RX_IF) ingress bpf da obj $(EBPF_RX_OBJ) sec tc/rx_ingress_cache_atu || true
+	sudo tc filter add dev $(RX_IF) egress bpf da obj $(EBPF_RX_OBJ) sec tc/rx_egress_add_ack_opt || true
+	sudo tc filter add dev $(TX_IF) ingress bpf da obj $(EBPF_TX_OBJ) sec tc/tx_ingress_parse_ack_opt || true
 
 # Attach only on receiver side (ingress cache, egress add-ack-opt)
 attach-recv: ebpf
 	sudo tc qdisc add dev $(RECV_IF) clsact 2>/dev/null || true
-	sudo tc filter add dev $(RECV_IF) ingress bpf da obj $(EBPF_OBJ) sec tc/rx_ingress_cache_atu || true
-	sudo tc filter add dev $(RECV_IF) egress  bpf da obj $(EBPF_OBJ) sec tc/rx_egress_add_ack_opt || true
+	sudo tc filter add dev $(RECV_IF) ingress bpf da obj $(EBPF_RX_OBJ) sec tc/rx_ingress_cache_atu || true
+	sudo tc filter add dev $(RECV_IF) egress  bpf da obj $(EBPF_RX_OBJ) sec tc/rx_egress_add_ack_opt || true
 
 # Attach only on sender side (ingress parse-ack-opt)
 attach-send: ebpf
 	sudo tc qdisc add dev $(SEND_IF) clsact 2>/dev/null || true
-	sudo tc filter add dev $(SEND_IF) ingress bpf da obj $(EBPF_OBJ) sec tc/tx_ingress_parse_ack_opt || true
+	sudo tc filter add dev $(SEND_IF) ingress bpf da obj $(EBPF_TX_OBJ) sec tc/tx_ingress_parse_ack_opt || true
 
 pin:
 	# Load eBPF object and pin maps
-	sudo $(BPFTOOL) prog loadall $(EBPF_OBJ) /sys/fs/bpf/$(PKG_NAME) || true
+	sudo $(BPFTOOL) prog loadall $(EBPF_TX_OBJ) /sys/fs/bpf/$(PKG_NAME) || true
 	sudo $(BPFTOOL) map pin id $(shell sudo $(BPFTOOL) map show | grep ack_atu_by_flow | awk '{print $$1}') /sys/fs/bpf/ack_atu_by_flow || true
 	sudo $(BPFTOOL) map pin id $(shell sudo $(BPFTOOL) map show | grep rx_flow_atu | awk '{print $$1}') /sys/fs/bpf/rx_flow_atu || true
 	sudo $(BPFTOOL) map pin id $(shell sudo $(BPFTOOL) map show | grep sk_atu_store | awk '{print $$1}') /sys/fs/bpf/sk_atu_store || true
@@ -143,7 +149,7 @@ status-send:
 
 clean:
 	$(MAKE) -C $(KDIR) M=$$PWD clean
-	rm -f $(EBPF_OBJ) $(DAEMON_BIN)
+	rm -f $(EBPF_RX_OBJ) $(EBPF_TX_OBJ) $(DAEMON_BIN)
 
 dkms-add:
 	sudo dkms add -m $(PKG_NAME) -v $(dkms_package_version)
