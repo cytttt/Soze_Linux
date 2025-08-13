@@ -51,6 +51,7 @@ ebpf:
 		-I/usr/src/linux-headers-$(shell uname -r)/include/generated \
 		-I/usr/src/linux-headers-$(shell uname -r)/include/uapi \
 		-nostdinc -isystem $(shell $(CLANG) -print-file-name=include) \
+		-Wno-error=invalid-output-constraint \
 		-c $(EBPF_SRC) -o $(EBPF_OBJ)
 
 daemon:
