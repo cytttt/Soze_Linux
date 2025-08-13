@@ -91,6 +91,16 @@ struct {
 // NOTE: Build two objects from this file:
 //   - Receiver: clang ... -DBUILD_SEND=0 (default) → no sk_storage/ack_atu_by_flow
 //   - Sender:   clang ... -DBUILD_SEND=1 -DUSE_SK_STORAGE=1 → includes maps & tx parser
+#if defined(BUILD_SEND) 
+// Sender side: per-flow mirror for userspace daemon to read
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, struct flow4_key);
+    __type(value, struct atu_val); // numer/denom (host order)
+    __uint(max_entries, 65536);
+} ack_atu_by_flow SEC(".maps");
+#endif
+
 #if defined(BUILD_SEND) && USE_SK_STORAGE
 // Sender side: per-socket storage of latest ATU from ACK
 struct {
@@ -99,14 +109,6 @@ struct {
     __type(value, struct atu_val); // numer and denom
     __uint(max_entries, 0);
 } sk_atu_store SEC(".maps");
-
-// Sender side: per-flow mirror for userspace daemon to read
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, struct flow4_key);
-    __type(value, struct atu_val); // numer/denom (host order)
-    __uint(max_entries, 65536);
-} ack_atu_by_flow SEC(".maps");
 #endif
 
 // Utility: parse L2/L3/L4 (IPv4 only in this skeleton)
@@ -289,7 +291,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     (void)bpf_skb_load_bytes(skb, tcp_off + 2,  &dport, 2);
 
     struct flow4_key k = {};
-    
+
     k.saddr = daddr;
     k.daddr = saddr;
     k.sport = dport;
