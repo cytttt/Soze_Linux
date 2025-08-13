@@ -68,10 +68,21 @@ OBJ_TX="$(realpath ebpf/atu_tx.o)"
 
 ## 3) Receiver: what to do
 The receiver does two things:
+
+**Receiver tasks:**
+- Parse DATA payload for the ATU TLV `[type=0xA1][len=8][u32 numer][u32 denom]` on ingress and cache it per‑flow.
+- On **pure ACK** (no payload) egress, insert TCP option `Kind=253, Len=10, numer, denom, NOP, NOP`.
+
 1) **Ingress**: parse DATA payload for the ATU TLV `[type=0xA1][len=8][u32 numer][u32 denom]` and cache it per‑flow.
 2) **Egress (ACK path)**: on **pure ACK** (no payload), insert TCP option `Kind=253, Len=10, numer, denom, NOP, NOP`.
 
 ### Steps (in `recv` namespace)
+To open an interactive shell inside the `recv` namespace:
+```bash
+sudo ip netns exec recv bash
+```
+You can keep this shell open for running all `recv`-side commands.  
+**Tip:** Use two terminals — one attached to `recv` and another to `send` — so you can run both sides concurrently without switching.
 ```bash
 # Attach clsact and RX programs
 ip netns exec recv tc qdisc add dev veth-r clsact 2>/dev/null || true
@@ -90,6 +101,11 @@ ip netns exec recv tc filter show dev veth-r egress
 
 ## 4) Sender: what to do
 The sender does two things:
+
+**Sender tasks:**
+- Parse `Kind=253, Len=10` and extract `numer/denom` on ingress (ACK path).
+- Mirror values to `ack_atu_by_flow` (for daemon) and (optionally) `sk_storage` (for kernel CC direct access).
+
 1) **Ingress (ACK path)**: parse `Kind=253, Len=10` and extract `numer/denom`.
 2) Mirror values to `ack_atu_by_flow` (for daemon) and (optionally) `sk_storage` (for kernel CC direct access).
 
@@ -148,7 +164,7 @@ ip netns exec send bash -lc 'head -c 5M </dev/zero | nc 10.0.0.1 5001'
 ```
 
 > If your switch isn’t yet injecting the forward‑path TLV, the receiver ingress can’t cache real ATU. For a loop test, you can temporarily enable a test mode in eBPF to fill a default numer/denom when TLV is absent (ask and we’ll add `ATU_TEST_MODE`).
-> To enable this, add `#define ATU_TEST_MODE` at the very top of `ebpf/atu_tcp_option_skeleton.c` before any includes, then rebuild (`make ebpf-rx` or `make all`). This will cause the eBPF program to insert a fixed test numer/denom when no TLV is detected, allowing end‑to‑end verification without requiring forward‑path injection.
+> To enable this, add `#define ATU_TEST_MODE` at the very top of `ebpf/atu_tcp_option_skeleton.c` **before any includes**, then rebuild (`make ebpf-rx` or `make all`). This will cause the eBPF program to insert a fixed test numer/denom when no TLV is detected, allowing end‑to‑end verification without requiring forward‑path injection.
 
 ---
 
