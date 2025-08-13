@@ -129,7 +129,7 @@ static void ccllcc_init(struct sock *sk)
 }
 
 
-static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event event) { }
+// static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event event) { }
 
 static inline u64 exp_approx(u64 x) {
     u64 res;
@@ -306,7 +306,7 @@ static bool get_atu_flow_key(struct sock *sk, struct atu_flow_key *key)
     key->saddr = inet->inet_saddr;
     key->daddr = inet->inet_daddr;
     key->sport = inet->inet_sport;  // network byte order
-    key->dport = tp->inet_dport;    // network byte order
+    key->dport = inet->inet_dport;  // network byte order
     key->protocol = IPPROTO_TCP;
 
     return true;
@@ -538,8 +538,6 @@ static const struct file_operations ccll_ctl_fops = {
 // Module init and exit for /dev/ccll_ctl
 static int __init ccll_ctl_init(void)
 {
-    int ret;
-
     ccll_ctl_major = register_chrdev(0, ccll_CTL_DEV_NAME, &ccll_ctl_fops);
     if (ccll_ctl_major < 0) {
         pr_err("ccll: failed to register ccll_ctl char device\n");
