@@ -25,7 +25,7 @@ DAEMON_SRC := daemon/ccll_atu_daemon.c
 DAEMON_BIN := ccll_atu_daemon
 
 CLANG ?= clang
-BPFOOL ?= bpftool
+BPFTOOL ?= bpftool
 
 .PHONY: all kmod insmod rmmod ebpf daemon attach attach-recv attach-send pin pin-recv pin-send detach detach-recv detach-send status status-recv status-send clean \
         dkms-add dkms-build dkms-install dkms-remove dkms-reinstall install uninstall

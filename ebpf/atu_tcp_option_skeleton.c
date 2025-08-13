@@ -81,6 +81,14 @@ struct {
     __uint(max_entries, 0);
 } sk_atu_store SEC(".maps");
 
+// Sender side: per-flow mirror for userspace daemon to read
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, struct flow4_key);
+    __type(value, struct atu_val); // numer/denom (host order)
+    __uint(max_entries, 65536);
+} ack_atu_by_flow SEC(".maps");
+
 // Utility: parse L2/L3/L4 (IPv4 only in this skeleton)
 static __always_inline int parse_eth(void **data, void **data_end, __u16 *eth_proto) {
     struct ethhdr *eth = (struct ethhdr *)(*data);
@@ -337,6 +345,16 @@ int tx_ingress_parse_ack_opt(struct __sk_buff *skb) {
                     slot->denom = denom_host;
                 }
             }
+            // Mirror to per-flow map for userspace daemon
+            struct flow4_key fk = {
+                .saddr = ip->saddr,
+                .daddr = ip->daddr,
+                .sport = tcp->source,
+                .dport = tcp->dest,
+                .proto = IPPROTO_TCP,
+            };
+            struct atu_val vv = {.numer = numer_host, .denom = denom_host};
+            bpf_map_update_elem(&ack_atu_by_flow, &fk, &vv, BPF_ANY);
             break;
         }
         opt += len;

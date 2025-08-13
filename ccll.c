@@ -105,11 +105,11 @@ struct ccllcc {
 static inline void ccllcc_reset(struct ccllcc *ca)
 {
     pr_info("c2l2: reset\n");
-    ca->last_cwnd = 1;
+    // ca->last_cwnd = 1;
     ca->curr_rtt = 0;
     ca->min_rtt = 0;
     ca->cwndx10e3 = 2000;
-    ca->rate_kbps = 1; // TODO
+    ca->rate_kbps = 1000; // TODO
 }
 
 static void ccllcc_init(struct sock *sk)

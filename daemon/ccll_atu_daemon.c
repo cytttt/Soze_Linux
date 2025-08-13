@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
         }
 
         struct flow4_key_user k = {0};
-        memcpy(&k, &next_key, sizeof(k) < sizeof(next_key) ? sizeof(k) : sizeof(k));
+        memcpy(&k, &next_key, sizeof(k) < sizeof(next_key) ? sizeof(k) : sizeof(next_key));
         // Lookup value
         if (bpf_map_lookup_elem(map_fd, &next_key, &value) == 0) {
             struct ccll_atu_msg msg = { .k = k, .numer = value.numer, .denom = value.denom };
