@@ -45,8 +45,11 @@ ebpf:
 	$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(shell echo $(ARCH) | tr a-z A-Z) \
 		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include \
 		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include/generated \
+		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include/uapi \
 		-I/usr/src/linux-headers-$(shell uname -r)/include \
 		-I/usr/src/linux-headers-$(shell uname -r)/include/generated \
+		-I/usr/src/linux-headers-$(shell uname -r)/include/uapi \
+		-nostdinc -isystem $(shell $(CLANG) -print-file-name=include) \
 		-c $(EBPF_SRC) -o $(EBPF_OBJ)
 
 daemon:
