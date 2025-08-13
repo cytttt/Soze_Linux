@@ -34,6 +34,8 @@
 #define ATU_TCP_OPT_KIND   253        // Experimental/Private Use
 #define ATU_TCP_OPT_LEN    10         // Kind(1)+Len(1)+ATU(8)
 #define ATU_DATA_BYTES     8          // 8-byte ATU payload (u32 numer + u32 denom)
+#define ATU_PAD2_BYTES     2          // two NOPs (Kind=1) for 32-bit alignment
+#define ATU_WIRE_BYTES     (ATU_TCP_OPT_LEN + ATU_PAD2_BYTES) // total bytes we actually insert
 
 // Assume your switch injects a DATA payload TLV like: [type=0xA1][len=8][u32 numer][u32 denom]
 #define SW_TLV_TYPE_ATU    0xA1
@@ -140,7 +142,7 @@ static __always_inline int tcp_payload_len(void *nh, void *data_end,
 // -----------------------------------------------------------------------------
 // Receiver ingress (TC): read ATU from DATA payload TLV and cache per-flow
 // -----------------------------------------------------------------------------
-SEC("tc")
+SEC("tc/rx_ingress_cache_atu")
 int rx_ingress_cache_atu(struct __sk_buff *skb) {
     void *data     = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
@@ -194,7 +196,7 @@ static __always_inline int is_pure_ack(const struct tcphdr *tcp, int plen) {
     return plen == 0;
 }
 
-SEC("tc")
+SEC("tc/rx_egress_add_ack_opt")
 int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     void *data     = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
@@ -231,10 +233,10 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
 
     // Ensure we have TCP option space to add ATU option
     __u32 opt_room = 60 - (tcp->doff * 4); // TCP header max 60 bytes
-    if (opt_room < ATU_TCP_OPT_LEN) return BPF_OK; // not enough space
+    if (opt_room < ATU_WIRE_BYTES) return BPF_OK; // not enough space
 
     // Grow headroom for TCP options
-    if (bpf_skb_adjust_room(skb, ATU_TCP_OPT_LEN, BPF_ADJ_ROOM_NET, 0))
+    if (bpf_skb_adjust_room(skb, ATU_WIRE_BYTES, BPF_ADJ_ROOM_NET, 0))
         return BPF_OK; // adjust failed
 
     // After adjust_room, pointers are invalid → reload
@@ -250,24 +252,28 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     __u32 ip_off  = (unsigned long)ip  - (unsigned long)skb->data;
     __u32 tcp_off = (unsigned long)tcp - (unsigned long)skb->data;
 
-    // Compose the option
-    __u8 opt_buf[ATU_TCP_OPT_LEN] = {0};
+    // Compose the option with 2 trailing NOPs for 4-byte alignment
+    __u8 opt_buf[ATU_WIRE_BYTES] = {0};
+    // ATU option
     opt_buf[0] = ATU_TCP_OPT_KIND;
-    opt_buf[1] = ATU_TCP_OPT_LEN;
+    opt_buf[1] = ATU_TCP_OPT_LEN; // 10 bytes follow Kind/Len (numer+denom)
     __u32 numer_net = bpf_htonl(atu_ptr->numer);
     __u32 denom_net = bpf_htonl(atu_ptr->denom);
     __builtin_memcpy(&opt_buf[2], &numer_net, sizeof(__u32));
     __builtin_memcpy(&opt_buf[6], &denom_net, sizeof(__u32));
+    // Padding: two NOPs (Kind=1) appended to make total 12 bytes (multiple of 4)
+    opt_buf[10] = 1; // NOP
+    opt_buf[11] = 1; // NOP
 
     // Store bytes at start of TCP options area (immediately after struct tcphdr)
     if (bpf_skb_store_bytes(skb, tcp_off + sizeof(struct tcphdr),
-                            opt_buf, ATU_TCP_OPT_LEN, 0)) {
+                            opt_buf, ATU_WIRE_BYTES, 0)) {
         return BPF_OK;
     }
 
     // Update TCP data offset (doff) to include new option bytes
     // TCP doff in 32-bit words
-    __u8 new_doff_words = (sizeof(struct tcphdr) + (tcp->doff * 4 - sizeof(struct tcphdr)) + ATU_TCP_OPT_LEN) / 4;
+    __u8 new_doff_words = (tcp->doff * 4 + ATU_WIRE_BYTES) / 4;
 
     // Write back doff (first 4 bits of th->doff) — need to rewrite the two bytes at offset 12..13
     struct tcphdr tcp_new = *tcp;
@@ -277,7 +283,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
 
     // Update IP total length
     __u16 old_tot = bpf_ntohs(ip->tot_len);
-    __u16 new_tot = old_tot + ATU_TCP_OPT_LEN;
+    __u16 new_tot = old_tot + ATU_WIRE_BYTES;
 
     __u16 new_tot_be = bpf_htons(new_tot);
     bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
@@ -300,7 +306,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
 // -----------------------------------------------------------------------------
 // Sender ingress (TC): parse ACK TCP option and save ATU into sk_storage
 // -----------------------------------------------------------------------------
-SEC("tc")
+SEC("tc/tx_ingress_parse_ack_opt")
 int tx_ingress_parse_ack_opt(struct __sk_buff *skb) {
     void *data     = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
