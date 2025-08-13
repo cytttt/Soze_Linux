@@ -25,8 +25,8 @@ else
   DEFAULT_EBPF_ARCH := x86
 endif
 ARCH ?= $(DEFAULT_EBPF_ARCH)
-RECV_IF ?= $(RX_IF)
-SEND_IF ?= $(TX_IF)
+RECV_IF ?= veth-r
+SEND_IF ?= veth-s
 
 # Optional: operate inside network namespaces
 RECV_NS ?= recv
