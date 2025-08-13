@@ -38,6 +38,10 @@
 #define ATU_WIRE_BYTES     (ATU_TCP_OPT_LEN + ATU_PAD2_BYTES) // total bytes we actually insert
 
 // Build feature switches (defaults tuned for RX build)
+#ifndef ATU_TEST_MODE
+#define ATU_TEST_MODE 0  /* 0=normal; 1=fill default numer/denom when TLV missing */
+#endif
+
 #ifndef BUILD_SEND
 #define BUILD_SEND 0   // 0=build receiver-only by default; set to 1 when building sender
 #endif
@@ -160,6 +164,7 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
     void *data     = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 
+    int __tlv_found = 0;
     __u16 ethp;
     if (parse_eth(&data, &data_end, &ethp) < 0) return BPF_OK;
     if (ethp != ETH_P_IP) return BPF_OK;
@@ -192,8 +197,15 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
         .numer = numer_host,
         .denom = denom_host,
     };
+    __tlv_found = 1;
     bpf_map_update_elem(&rx_flow_atu, &k, &atu_host, BPF_ANY);
 
+    #if ATU_TEST_MODE
+    if (!__tlv_found) {
+        struct atu_val __tmp = { .numer = 9000, .denom = 10000 };
+        bpf_map_update_elem(&rx_flow_atu, &k, &__tmp, BPF_ANY);
+    }
+    #endif
     return BPF_OK;
 }
 
@@ -208,120 +220,12 @@ static __always_inline int is_pure_ack(const struct tcphdr *tcp, int plen) {
         return 0;
     return plen == 0;
 }
-/*
-SEC("tc/rx_egress_add_ack_opt")
-int rx_egress_add_ack_opt(struct __sk_buff *skb) {
-    void *data     = (void *)(long)skb->data;
-    void *data_end = (void *)(long)skb->data_end;
 
-    __u16 ethp;
-    if (parse_eth(&data, &data_end, &ethp) < 0) return BPF_OK;
-    if (ethp != ETH_P_IP) return BPF_OK;
-
-    struct iphdr *ip;
-    if (parse_ipv4(&data, &data_end, &ip) < 0) return BPF_OK;
-
-    struct tcphdr *tcp;
-    void *payload;
-    payload = data;
-    if (parse_tcp(&payload, &data_end, &tcp) < 0) return BPF_OK;
-
-    int plen = tcp_payload_len((void *)ip, data_end, ip, tcp);
-    if (!is_pure_ack(tcp, plen)) return BPF_OK;
-
-    // Lookup cached ATU for this flow (note: reverse direction key!)
-    struct flow4_key k = {};
-    // For ACK going out from receiver, invert saddr/daddr and ports to match rx_ingress key
-    {
-        // fabricate a pseudo key matching forward DATA direction
-        k.saddr = ip->daddr;   // original sender
-        k.daddr = ip->saddr;   // original receiver
-        k.sport = tcp->dest;   // original sender port
-        k.dport = tcp->source; // original receiver port
-        k.proto = IPPROTO_TCP;
-    }
-
-    struct atu_val *atu_ptr = bpf_map_lookup_elem(&rx_flow_atu, &k);
-    if (!atu_ptr) return BPF_OK; // no ATU cached → skip adding option
-
-    // Ensure we have TCP option space to add ATU option
-    __u32 opt_room = 60 - (tcp->doff * 4); // TCP header max 60 bytes
-    if (opt_room < ATU_WIRE_BYTES) return BPF_OK; // not enough space
-
-    // Grow headroom for TCP options
-    if (bpf_skb_adjust_room(skb, ATU_WIRE_BYTES, BPF_ADJ_ROOM_NET, 0))
-        return BPF_OK; // adjust failed
-
-    // After adjust_room, pointers are invalid → reload
-    data     = (void *)(long)skb->data;
-    data_end = (void *)(long)skb->data_end;
-
-    // Re-parse to new positions
-    if (parse_eth(&data, &data_end, &ethp) < 0) return BPF_OK;
-    if (ethp != ETH_P_IP) return BPF_OK;
-    if (parse_ipv4(&data, &data_end, &ip) < 0) return BPF_OK;
-    if (parse_tcp(&data, &data_end, &tcp) < 0) return BPF_OK;
-
-    __u32 ip_off  = (unsigned long)ip  - (unsigned long)skb->data;
-    __u32 tcp_off = (unsigned long)tcp - (unsigned long)skb->data;
-
-    // Compose the option with 2 trailing NOPs for 4-byte alignment
-    __u8 opt_buf[ATU_WIRE_BYTES] = {0};
-    // ATU option
-    opt_buf[0] = ATU_TCP_OPT_KIND;
-    opt_buf[1] = ATU_TCP_OPT_LEN; // 10 bytes follow Kind/Len (numer+denom)
-    __u32 numer_net = bpf_htonl(atu_ptr->numer);
-    __u32 denom_net = bpf_htonl(atu_ptr->denom);
-    __builtin_memcpy(&opt_buf[2], &numer_net, sizeof(__u32));
-    __builtin_memcpy(&opt_buf[6], &denom_net, sizeof(__u32));
-    // Padding: two NOPs (Kind=1) appended to make total 12 bytes (multiple of 4)
-    opt_buf[10] = 1; // NOP
-    opt_buf[11] = 1; // NOP
-
-    // Store bytes at start of TCP options area (immediately after struct tcphdr)
-    if (bpf_skb_store_bytes(skb, tcp_off + sizeof(struct tcphdr),
-                            opt_buf, ATU_WIRE_BYTES, 0)) {
-        return BPF_OK;
-    }
-
-    // Update TCP data offset (doff) to include new option bytes
-    // TCP doff in 32-bit words
-    __u8 new_doff_words = (tcp->doff * 4 + ATU_WIRE_BYTES) / 4;
-
-    // Write back doff (first 4 bits of th->doff) — need to rewrite the two bytes at offset 12..13
-    struct tcphdr tcp_new = *tcp;
-    tcp_new.doff = new_doff_words;
-    if (bpf_skb_store_bytes(skb, tcp_off, &tcp_new, sizeof(tcp_new), 0))
-        return BPF_OK;
-
-    // Update IP total length
-    __u16 old_tot = bpf_ntohs(ip->tot_len);
-    __u16 new_tot = old_tot + ATU_WIRE_BYTES;
-
-    __u16 new_tot_be = bpf_htons(new_tot);
-    bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
-                        &new_tot_be, sizeof(new_tot_be), 0);
-
-    // Fix IPv4 header checksum for tot_len change
-    bpf_l3_csum_replace(skb,
-                        ip_off + offsetof(struct iphdr, check),
-                        (__be32)ip->tot_len, (__be32)new_tot_be,
-                        sizeof(__u16));
-
-    // Mark TCP checksum dirty so stack/NIC will recompute
-    bpf_l4_csum_replace(skb,
-                        tcp_off + offsetof(struct tcphdr, check),
-                        0, 0, BPF_F_MARK_MANGLED_0);
-
-    return BPF_OK;
-}
-*/
 SEC("tc/rx_egress_add_ack_opt")
 int rx_egress_add_ack_opt(struct __sk_buff *skb)
 {
-    /* 以 offset 解析，不做任何 data 指標解參考 */
     __u16 eth_proto = 0;
-    __u32 ip_off = 14;      /* Ethernet header 固定 14B */
+    __u32 ip_off = 14;  
     __u8  vihl = 0, proto = 0;
     __u16 tot_be = 0;
     __u32 ihl_bytes = 0, tcp_off = 0;
@@ -330,7 +234,6 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     __u32 opt_room = 0;
     __u32 payload_len = 0;
 
-    /* 以太網類型 */
     if (bpf_skb_load_bytes(skb, 12, &eth_proto, sizeof(eth_proto)) < 0)
         return BPF_OK;
     eth_proto = bpf_ntohs(eth_proto);
@@ -357,7 +260,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     __u16 tot = bpf_ntohs(tot_be);
 
-    /* TCP header起點與長度/旗標 */
+
     tcp_off = ip_off + ihl_bytes;
     if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
         return BPF_OK;
@@ -367,7 +270,6 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (doff_bytes < 20)
         return BPF_OK;
 
-    /* 必須是「純 ACK」：ACK=1 且沒有 SYN/FIN/RST/PSH，且 payload 長度=0 */
     if (!(flags & 0x10))           /* ACK bit */
         return BPF_OK;
     if (flags & (0x01 | 0x02 | 0x04 | 0x08))
@@ -379,7 +281,6 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (payload_len != 0)
         return BPF_OK;
 
-    /* 查反向 5-tuple 的 ATU（data: numer/denom） */
     __u32 saddr = 0, daddr = 0;
     __u16 sport = 0, dport = 0;
     (void)bpf_skb_load_bytes(skb, ip_off + 12, &saddr, 4);
@@ -399,21 +300,17 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (!atu_ptr)
         return BPF_OK;
 
-    /* TCP option 空間檢查 */
     opt_room = 60 - doff_bytes;
-    if (opt_room < ATU_WIRE_BYTES) /* 我們插 12B：253/10 + 8B + NOP,NOP */
+    if (opt_room < ATU_WIRE_BYTES)
         return BPF_OK;
 
-    /* 在 L3 邊界增加空間（會把 L4 之後的資料右移） */
     if (bpf_skb_adjust_room(skb, ATU_WIRE_BYTES, BPF_ADJ_ROOM_NET, 0))
         return BPF_OK;
 
-    /* 調整後重新計算並寫入：IP tot_len、TCP doff、插入 option 本體 */
     {
         __u16 new_tot = tot + ATU_WIRE_BYTES;
         __be16 new_tot_be = bpf_htons(new_tot);
 
-        /* IPv4 tot_len + checksum（增量修正） */
         bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
                             &new_tot_be, sizeof(new_tot_be), 0);
         bpf_l3_csum_replace(skb,
@@ -421,13 +318,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                             (__be32)tot_be, (__be32)new_tot_be,
                             sizeof(__u16));
 
-        /* 插入 option：放在舊的 TCP header 末端（原本 doff_bytes 處） */
         __u8 opt_buf[ATU_WIRE_BYTES] = {0};
         __u32 numer_be = bpf_htonl(atu_ptr->numer);
         __u32 denom_be = bpf_htonl(atu_ptr->denom);
 
         opt_buf[0]  = ATU_TCP_OPT_KIND;
-        opt_buf[1]  = ATU_TCP_OPT_LEN;   /* 固定 10 */
+        opt_buf[1]  = ATU_TCP_OPT_LEN;
         __builtin_memcpy(&opt_buf[2], &numer_be, sizeof(numer_be));
         __builtin_memcpy(&opt_buf[6], &denom_be, sizeof(denom_be));
         opt_buf[10] = 1; /* NOP */
@@ -437,12 +333,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                                 opt_buf, ATU_WIRE_BYTES, 0))
             return BPF_OK;
 
-        /* 更新 TCP data offset（單位 4B） */
+
         __u8 new_doff_words = (doff_bytes + ATU_WIRE_BYTES) / 4;
         __u8 new_doff_byte  = (new_doff_words << 4) | (doff_byte & 0x0F);
         bpf_skb_store_bytes(skb, tcp_off + 12, &new_doff_byte, 1, 0);
 
-        /* 標記 TCP checksum 需重算（由 stack/NIC 處理） */
+
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             0, 0, BPF_F_MARK_MANGLED_0);
