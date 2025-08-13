@@ -289,7 +289,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     (void)bpf_skb_load_bytes(skb, tcp_off + 2,  &dport, 2);
 
     struct flow4_key k = {};
-    /* 這裡在 egress ACK：反向 key（原 sender <- 原 receiver） */
+    
     k.saddr = daddr;
     k.daddr = saddr;
     k.sport = dport;
