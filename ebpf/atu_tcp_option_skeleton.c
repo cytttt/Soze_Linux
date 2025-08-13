@@ -9,7 +9,7 @@
 //      * Egress: when emitting pure ACKs, insert a TCP option (Kind=253) carrying
 //                8 bytes of ATU into the ACK
 //  - Sender:
-//      * Ingress: parse ACK's TCP option and store ATU into sk_storage for the socket
+//      * Ingress: parse ACK's TCP option and store ATU (and mirror per-flow)
 //
 // Notes:
 //  - This is a *skeleton*: boundary checks, checksum updates, and error handling are
@@ -74,7 +74,7 @@ static __always_inline void fill_flow4_key(struct flow4_key *k,
     k->proto = IPPROTO_TCP;
 }
 
-// New struct for ATU storing numer and denom separately
+// ATU value (numer/denom)
 struct atu_val {
     __u32 numer;
     __u32 denom;
@@ -88,10 +88,7 @@ struct {
     __uint(max_entries, 16384);
 } rx_flow_atu SEC(".maps");
 
-// NOTE: Build two objects from this file:
-//   - Receiver: clang ... -DBUILD_SEND=0 (default) → no sk_storage/ack_atu_by_flow
-//   - Sender:   clang ... -DBUILD_SEND=1 -DUSE_SK_STORAGE=1 → includes maps & tx parser
-#if defined(BUILD_SEND) 
+#if defined(BUILD_SEND)
 // Sender side: per-flow mirror for userspace daemon to read
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -102,7 +99,7 @@ struct {
 #endif
 
 #if defined(BUILD_SEND) && USE_SK_STORAGE
-// Sender side: per-socket storage of latest ATU from ACK
+// Sender side: per-socket storage of latest ATU from ACK (optional)
 struct {
     __uint(type, BPF_MAP_TYPE_SK_STORAGE);
     __type(key, struct sock *);
@@ -202,12 +199,12 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
     __tlv_found = 1;
     bpf_map_update_elem(&rx_flow_atu, &k, &atu_host, BPF_ANY);
 
-    #if ATU_TEST_MODE
+#if ATU_TEST_MODE
     if (!__tlv_found) {
         struct atu_val __tmp = { .numer = 9000, .denom = 10000 };
         bpf_map_update_elem(&rx_flow_atu, &k, &__tmp, BPF_ANY);
     }
-    #endif
+#endif
     return BPF_OK;
 }
 
@@ -351,73 +348,120 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
 #if defined(BUILD_SEND)
 // -----------------------------------------------------------------------------
-// Sender ingress (TC): parse ACK TCP option and save ATU into sk_storage
+// Sender ingress (TC): parse ACK TCP option (offset-based) and mirror ATU
 // -----------------------------------------------------------------------------
 SEC("tc/tx_ingress_parse_ack_opt")
-int tx_ingress_parse_ack_opt(struct __sk_buff *skb) {
-    void *data     = (void *)(long)skb->data;
-    void *data_end = (void *)(long)skb->data_end;
+int tx_ingress_parse_ack_opt(struct __sk_buff *skb)
+{
+    /* Offset-based parsing only: verifier-friendly */
+    __u16 eth_proto = 0;
+    __u32 ip_off = 14;
+    __u8  vihl = 0, proto = 0;
+    __u32 ihl_bytes = 0, tcp_off = 0;
+    __u8  doff_byte = 0, flags = 0;
+    __u32 doff_bytes = 0;
 
-    __u16 ethp;
-    if (parse_eth(&data, &data_end, &ethp) < 0) return BPF_OK;
-    if (ethp != ETH_P_IP) return BPF_OK;
+    /* Ethernet */
+    if (bpf_skb_load_bytes(skb, 12, &eth_proto, sizeof(eth_proto)) < 0)
+        return BPF_OK;
+    eth_proto = bpf_ntohs(eth_proto);
+    if (eth_proto != ETH_P_IP)
+        return BPF_OK;
 
-    struct iphdr *ip;
-    if (parse_ipv4(&data, &data_end, &ip) < 0) return BPF_OK;
+    /* IPv4 base */
+    if (bpf_skb_load_bytes(skb, ip_off + 0, &vihl, 1) < 0)
+        return BPF_OK;
+    if ((vihl & 0xF0) != 0x40)
+        return BPF_OK;
+    ihl_bytes = (vihl & 0x0F) * 4;
+    if (ihl_bytes < 20)
+        return BPF_OK;
 
-    struct tcphdr *tcp;
-    void *opt_ptr;
-    opt_ptr = data;
-    if (parse_tcp(&opt_ptr, &data_end, &tcp) < 0) return BPF_OK;
+    if (bpf_skb_load_bytes(skb, ip_off + 9, &proto, 1) < 0)
+        return BPF_OK;
+    if (proto != IPPROTO_TCP)
+        return BPF_OK;
 
-    int plen = tcp_payload_len((void *)ip, data_end, ip, tcp);
-    if (!tcp->ack) return BPF_OK; // interested in ACKs only
+    /* TCP header start & size */
+    tcp_off = ip_off + ihl_bytes;
+    if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
+        return BPF_OK;
+    if (bpf_skb_load_bytes(skb, tcp_off + 13, &flags, 1) < 0)
+        return BPF_OK;
+    doff_bytes = ((__u32)(doff_byte >> 4) & 0xF) * 4;
+    if (doff_bytes < 20)
+        return BPF_OK;
 
-    // Iterate TCP options area to find our Kind
-    __u8 *opt = (void *)tcp + sizeof(*tcp);
-    __u8 *opt_end = (void *)tcp + (tcp->doff * 4);
-    while (opt + 1 < opt_end) {
-        __u8 kind = *opt;
-        if (kind == 0) break;        // End of options
-        if (kind == 1) {             // NOP
-            opt += 1;
+    /* Only ACK packets */
+    if (!(flags & 0x10))
+        return BPF_OK;
+
+    /* Flow tuple for mirroring */
+    __u32 saddr = 0, daddr = 0;
+    __u16 sport = 0, dport = 0;
+    (void)bpf_skb_load_bytes(skb, ip_off + 12, &saddr, 4);
+    (void)bpf_skb_load_bytes(skb, ip_off + 16, &daddr, 4);
+    (void)bpf_skb_load_bytes(skb, tcp_off + 0,  &sport, 2);
+    (void)bpf_skb_load_bytes(skb, tcp_off + 2,  &dport, 2);
+
+    /* TCP options scan: [tcp_off + 20, tcp_off + doff_bytes) */
+    __u32 opt_off  = tcp_off + 20;               /* options start after fixed 20B */
+    __u32 opt_end  = tcp_off + doff_bytes;       /* end of TCP header */
+
+    while (opt_off + 1 <= opt_end) {
+        __u8 kind = 0;
+        if (bpf_skb_load_bytes(skb, opt_off, &kind, 1) < 0)
+            break;
+        if (kind == 0) /* EOL */
+            break;
+        if (kind == 1) { /* NOP */
+            opt_off += 1;
             continue;
         }
-        if (opt + 2 > opt_end) break;
-        __u8 len = *(opt + 1);
-        if (len < 2 || opt + len > opt_end) break;
+        if (opt_off + 2 > opt_end)
+            break;
+        __u8 len = 0;
+        if (bpf_skb_load_bytes(skb, opt_off + 1, &len, 1) < 0)
+            break;
+        if (len < 2 || opt_off + len > opt_end)
+            break;
+
         if (kind == ATU_TCP_OPT_KIND && len == ATU_TCP_OPT_LEN) {
-            if (len != 2 + ATU_DATA_BYTES) break;
-            __u32 numer_net, denom_net;
-            __builtin_memcpy(&numer_net, opt + 2, sizeof(__u32));
-            __builtin_memcpy(&denom_net, opt + 6, sizeof(__u32));
-            __u32 numer_host = bpf_ntohl(numer_net);
-            __u32 denom_host = bpf_ntohl(denom_net);
+            /* ATU payload: 8 bytes: numer(4) + denom(4) */
+            __u32 numer_net = 0, denom_net = 0;
+            if (bpf_skb_load_bytes(skb, opt_off + 2, &numer_net, 4) < 0)
+                break;
+            if (bpf_skb_load_bytes(skb, opt_off + 6, &denom_net, 4) < 0)
+                break;
+            __u32 numer = bpf_ntohl(numer_net);
+            __u32 denom = bpf_ntohl(denom_net);
 
 #if defined(BUILD_SEND) && USE_SK_STORAGE
+            /* Optional: per-socket store */
             struct sock *sk = (struct sock *)(long)skb->sk;
             if (sk) {
                 struct atu_val *slot = bpf_sk_storage_get(&sk_atu_store, sk, 0,
-                                                 BPF_SK_STORAGE_GET_F_CREATE);
+                                              BPF_SK_STORAGE_GET_F_CREATE);
                 if (slot) {
-                    slot->numer = numer_host;
-                    slot->denom = denom_host;
+                    slot->numer = numer;
+                    slot->denom = denom;
                 }
             }
 #endif
-            // Mirror to per-flow map for userspace daemon
+            /* Mirror to per-flow map for userspace daemon */
             struct flow4_key fk = {
-                .saddr = ip->saddr,
-                .daddr = ip->daddr,
-                .sport = tcp->source,
-                .dport = tcp->dest,
+                .saddr = saddr,
+                .daddr = daddr,
+                .sport = sport,
+                .dport = dport,
                 .proto = IPPROTO_TCP,
             };
-            struct atu_val vv = {.numer = numer_host, .denom = denom_host};
+            struct atu_val vv = { .numer = numer, .denom = denom };
             bpf_map_update_elem(&ack_atu_by_flow, &fk, &vv, BPF_ANY);
-            break;
+            break; /* done */
         }
-        opt += len;
+
+        opt_off += len;
     }
 
     return BPF_OK;
