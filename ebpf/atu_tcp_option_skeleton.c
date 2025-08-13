@@ -406,8 +406,8 @@ int tx_ingress_parse_ack_opt(struct __sk_buff *skb)
 
     /* TCP options scan: [tcp_off + 20, tcp_off + doff_bytes) */
     __u32 tcp_hdr_start = tcp_off;
-    __u32 tcp_opts_off  = tcp_hdr_start + 20;
-    __u32 tcp_opts_end  = tcp_hdr_start + doff_bytes;
+    __u32 off  = tcp_hdr_start + 20;
+    __u32 end  = tcp_hdr_start + doff_bytes;
 
     #pragma clang loop unroll(full)
     for (int iter = 0; iter < 40; iter++) {
