@@ -208,7 +208,7 @@ static __always_inline int is_pure_ack(const struct tcphdr *tcp, int plen) {
         return 0;
     return plen == 0;
 }
-
+/*
 SEC("tc/rx_egress_add_ack_opt")
 int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     void *data     = (void *)(long)skb->data;
@@ -312,6 +312,141 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb) {
     bpf_l4_csum_replace(skb,
                         tcp_off + offsetof(struct tcphdr, check),
                         0, 0, BPF_F_MARK_MANGLED_0);
+
+    return BPF_OK;
+}
+*/
+SEC("tc/rx_egress_add_ack_opt")
+int rx_egress_add_ack_opt(struct __sk_buff *skb)
+{
+    /* 以 offset 解析，不做任何 data 指標解參考 */
+    __u16 eth_proto = 0;
+    __u32 ip_off = 14;      /* Ethernet header 固定 14B */
+    __u8  vihl = 0, proto = 0;
+    __u16 tot_be = 0;
+    __u32 ihl_bytes = 0, tcp_off = 0;
+    __u8  doff_byte = 0, flags = 0;
+    __u32 doff_bytes = 0;
+    __u32 opt_room = 0;
+    __u32 payload_len = 0;
+
+    /* 以太網類型 */
+    if (bpf_skb_load_bytes(skb, 12, &eth_proto, sizeof(eth_proto)) < 0)
+        return BPF_OK;
+    eth_proto = bpf_ntohs(eth_proto);
+    if (eth_proto != ETH_P_IP)
+        return BPF_OK;
+
+    /* IPv4 version / IHL */
+    if (bpf_skb_load_bytes(skb, ip_off + 0, &vihl, 1) < 0)
+        return BPF_OK;
+    if ((vihl & 0xF0) != 0x40)
+        return BPF_OK;
+    ihl_bytes = (vihl & 0x0F) * 4;
+    if (ihl_bytes < 20)
+        return BPF_OK;
+
+    /* Protocol = TCP */
+    if (bpf_skb_load_bytes(skb, ip_off + 9, &proto, 1) < 0)
+        return BPF_OK;
+    if (proto != IPPROTO_TCP)
+        return BPF_OK;
+
+    /* IPv4 total length */
+    if (bpf_skb_load_bytes(skb, ip_off + 2, &tot_be, 2) < 0)
+        return BPF_OK;
+    __u16 tot = bpf_ntohs(tot_be);
+
+    /* TCP header起點與長度/旗標 */
+    tcp_off = ip_off + ihl_bytes;
+    if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
+        return BPF_OK;
+    if (bpf_skb_load_bytes(skb, tcp_off + 13, &flags, 1) < 0)
+        return BPF_OK;
+    doff_bytes = ((__u32)(doff_byte >> 4) & 0xF) * 4;
+    if (doff_bytes < 20)
+        return BPF_OK;
+
+    /* 必須是「純 ACK」：ACK=1 且沒有 SYN/FIN/RST/PSH，且 payload 長度=0 */
+    if (!(flags & 0x10))           /* ACK bit */
+        return BPF_OK;
+    if (flags & (0x01 | 0x02 | 0x04 | 0x08))
+        return BPF_OK;
+
+    if (tot < ihl_bytes + doff_bytes)
+        return BPF_OK;
+    payload_len = tot - ihl_bytes - doff_bytes;
+    if (payload_len != 0)
+        return BPF_OK;
+
+    /* 查反向 5-tuple 的 ATU（data: numer/denom） */
+    __u32 saddr = 0, daddr = 0;
+    __u16 sport = 0, dport = 0;
+    (void)bpf_skb_load_bytes(skb, ip_off + 12, &saddr, 4);
+    (void)bpf_skb_load_bytes(skb, ip_off + 16, &daddr, 4);
+    (void)bpf_skb_load_bytes(skb, tcp_off + 0,  &sport, 2);
+    (void)bpf_skb_load_bytes(skb, tcp_off + 2,  &dport, 2);
+
+    struct flow4_key k = {};
+    /* 這裡在 egress ACK：反向 key（原 sender <- 原 receiver） */
+    k.saddr = daddr;
+    k.daddr = saddr;
+    k.sport = dport;
+    k.dport = sport;
+    k.proto = IPPROTO_TCP;
+
+    struct atu_val *atu_ptr = bpf_map_lookup_elem(&rx_flow_atu, &k);
+    if (!atu_ptr)
+        return BPF_OK;
+
+    /* TCP option 空間檢查 */
+    opt_room = 60 - doff_bytes;
+    if (opt_room < ATU_WIRE_BYTES) /* 我們插 12B：253/10 + 8B + NOP,NOP */
+        return BPF_OK;
+
+    /* 在 L3 邊界增加空間（會把 L4 之後的資料右移） */
+    if (bpf_skb_adjust_room(skb, ATU_WIRE_BYTES, BPF_ADJ_ROOM_NET, 0))
+        return BPF_OK;
+
+    /* 調整後重新計算並寫入：IP tot_len、TCP doff、插入 option 本體 */
+    {
+        __u16 new_tot = tot + ATU_WIRE_BYTES;
+        __be16 new_tot_be = bpf_htons(new_tot);
+
+        /* IPv4 tot_len + checksum（增量修正） */
+        bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
+                            &new_tot_be, sizeof(new_tot_be), 0);
+        bpf_l3_csum_replace(skb,
+                            ip_off + offsetof(struct iphdr, check),
+                            (__be32)tot_be, (__be32)new_tot_be,
+                            sizeof(__u16));
+
+        /* 插入 option：放在舊的 TCP header 末端（原本 doff_bytes 處） */
+        __u8 opt_buf[ATU_WIRE_BYTES] = {0};
+        __u32 numer_be = bpf_htonl(atu_ptr->numer);
+        __u32 denom_be = bpf_htonl(atu_ptr->denom);
+
+        opt_buf[0]  = ATU_TCP_OPT_KIND;
+        opt_buf[1]  = ATU_TCP_OPT_LEN;   /* 固定 10 */
+        __builtin_memcpy(&opt_buf[2], &numer_be, sizeof(numer_be));
+        __builtin_memcpy(&opt_buf[6], &denom_be, sizeof(denom_be));
+        opt_buf[10] = 1; /* NOP */
+        opt_buf[11] = 1; /* NOP */
+
+        if (bpf_skb_store_bytes(skb, tcp_off + doff_bytes,
+                                opt_buf, ATU_WIRE_BYTES, 0))
+            return BPF_OK;
+
+        /* 更新 TCP data offset（單位 4B） */
+        __u8 new_doff_words = (doff_bytes + ATU_WIRE_BYTES) / 4;
+        __u8 new_doff_byte  = (new_doff_words << 4) | (doff_byte & 0x0F);
+        bpf_skb_store_bytes(skb, tcp_off + 12, &new_doff_byte, 1, 0);
+
+        /* 標記 TCP checksum 需重算（由 stack/NIC 處理） */
+        bpf_l4_csum_replace(skb,
+                            tcp_off + offsetof(struct tcphdr, check),
+                            0, 0, BPF_F_MARK_MANGLED_0);
+    }
 
     return BPF_OK;
 }
