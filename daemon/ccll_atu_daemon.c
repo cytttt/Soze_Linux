@@ -37,6 +37,7 @@
 #include <sys/stat.h>
 
 #include <bpf/libbpf.h>
+#include <bpf/bpf.h>
 
 struct flow4_key_user {
     uint32_t saddr; // network order
