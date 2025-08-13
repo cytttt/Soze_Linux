@@ -349,7 +349,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     return BPF_OK;
 }
 
-#if defined(BUILD_SEND) && USE_SK_STORAGE
+#if defined(BUILD_SEND)
 // -----------------------------------------------------------------------------
 // Sender ingress (TC): parse ACK TCP option and save ATU into sk_storage
 // -----------------------------------------------------------------------------
