@@ -48,7 +48,7 @@ BPF_CFLAGS := -O2 -g -target bpf \
               $(BPF_INC_FLAGS) \
               -Wno-address-of-packed-member -Wno-gnu-variable-sized-type-not-at-end
 
-ATU_TEST_MODE ?= 0
+ATU_TEST_MODE ?= 1
 BPF_CFLAGS += -DATU_TEST_MODE=$(ATU_TEST_MODE)
 
 .PHONY: all kmod insmod rmmod ebpf ebpf-rx ebpf-tx daemon attach attach-recv attach-send pin pin-recv pin-send detach detach-recv detach-send status status-recv status-send clean \
