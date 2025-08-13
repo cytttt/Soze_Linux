@@ -29,8 +29,8 @@ RECV_IF ?= $(RX_IF)
 SEND_IF ?= $(TX_IF)
 
 # Optional: operate inside network namespaces
-RECV_NS ?=
-SEND_NS ?=
+RECV_NS ?= recv
+SEND_NS ?= send
 
 NS_RECV := $(if $(RECV_NS),ip netns exec $(RECV_NS),)
 NS_SEND := $(if $(SEND_NS),ip netns exec $(SEND_NS),)
