@@ -89,12 +89,12 @@ daemon:
 
 attach:
 	# Add clsact qdisc on RX_IF and TX_IF
-	sudo $(NS_RECV) tc qdisc add dev $(RX_IF) clsact 2>/dev/null || true
-	sudo $(NS_SEND) tc qdisc add dev $(TX_IF) clsact 2>/dev/null || true
+	sudo $(NS_RECV) tc qdisc add dev $(RECV_IF) clsact 2>/dev/null || true
+	sudo $(NS_SEND) tc qdisc add dev $(SEND_IF) clsact 2>/dev/null || true
 	# Load TC BPF programs
-	sudo $(NS_RECV) tc filter add dev $(RX_IF) ingress bpf da obj $(EBPF_RX_OBJ) sec tc/rx_ingress_cache_atu || true
-	sudo $(NS_RECV) tc filter add dev $(RX_IF) egress  bpf da obj $(EBPF_RX_OBJ) sec tc/rx_egress_add_ack_opt  || true
-	sudo $(NS_SEND) tc filter add dev $(TX_IF) ingress bpf da obj $(EBPF_TX_OBJ) sec tc/tx_ingress_parse_ack_opt || true
+	sudo $(NS_RECV) tc filter add dev $(RECV_IF) ingress bpf da obj $(EBPF_RX_OBJ) sec tc/rx_ingress_cache_atu || true
+	sudo $(NS_RECV) tc filter add dev $(RECV_IF) egress  bpf da obj $(EBPF_RX_OBJ) sec tc/rx_egress_add_ack_opt  || true
+	sudo $(NS_SEND) tc filter add dev $(SEND_IF) ingress bpf da obj $(EBPF_TX_OBJ) sec tc/tx_ingress_parse_ack_opt || true
 
 # Attach only on receiver side (ingress cache, egress add-ack-opt)
 attach-recv: ebpf
@@ -121,11 +121,11 @@ pin-send: pin
 
 detach:
 	# Delete filters and qdiscs on RX_IF and TX_IF
-	sudo $(NS_RECV) tc filter del dev $(RX_IF) ingress || true
-	sudo $(NS_RECV) tc filter del dev $(RX_IF) egress  || true
-	sudo $(NS_SEND) tc filter del dev $(TX_IF) ingress || true
-	sudo $(NS_RECV) tc qdisc  del dev $(RX_IF) clsact  || true
-	sudo $(NS_SEND) tc qdisc  del dev $(TX_IF) clsact  || true
+	sudo $(NS_RECV) tc filter del dev $(RECV_IF) ingress || true
+	sudo $(NS_RECV) tc filter del dev $(RECV_IF) egress  || true
+	sudo $(NS_SEND) tc filter del dev $(SEND_IF) ingress || true
+	sudo $(NS_RECV) tc qdisc  del dev $(RECV_IF) clsact  || true
+	sudo $(NS_SEND) tc qdisc  del dev $(SEND_IF) clsact  || true
 
 # Detach only on receiver side
 detach-recv:
@@ -140,12 +140,12 @@ detach-send:
 
 status:
 	# Show qdisc and filters
-	echo "Qdisc and filters on $(RX_IF):"
-	sudo $(NS_RECV) tc qdisc show dev $(RX_IF) || true
-	sudo $(NS_RECV) tc filter show dev $(RX_IF) || true
-	echo "Qdisc and filters on $(TX_IF):"
-	sudo $(NS_SEND) tc qdisc show dev $(TX_IF) || true
-	sudo $(NS_SEND) tc filter show dev $(TX_IF) || true
+	echo "Qdisc and filters on $(RECV_IF):"
+	sudo $(NS_RECV) tc qdisc show dev $(RECV_IF) || true
+	sudo $(NS_RECV) tc filter show dev $(RECV_IF) || true
+	echo "Qdisc and filters on $(SEND_IF):"
+	sudo $(NS_SEND) tc qdisc show dev $(SEND_IF) || true
+	sudo $(NS_SEND) tc filter show dev $(SEND_IF) || true
 	echo "Pinned eBPF maps (in $(if $(SEND_NS),ns $(SEND_NS),host)):" 
 	sudo $(NS_SEND) $(BPFTOOL) map show pinned /sys/fs/bpf/ || true
 
