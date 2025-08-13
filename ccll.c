@@ -54,7 +54,7 @@
 // static u64 max_rate __read_mostly = 100000000;   // Kbps
 static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
 static u64 ln10e5_max_rate __read_mostly = 1842068;     // ln(Kbps) * 100,000
-static u32 delay_scale __read_mostly = 8000;        // us
+static u32 __maybe_unused delay_scale __read_mostly = 8000;        // us
 
 /* C2L2 constant */
 #define FPS 100000ULL
@@ -66,7 +66,7 @@ static u32 atu_scale __read_mostly = 10000;
 static u32 atu_frac_lb __read_mostly = 9200; // X
 static u32 atu_frac_range __read_mostly = 500; // Y
 
-static u32 ccll_weight __read_mostly = 1;
+static u32 __maybe_unused ccll_weight __read_mostly = 1;
 
 // ATU integration parameters
 static bool atu_enabled __read_mostly = true;
@@ -114,8 +114,8 @@ static inline void ccllcc_reset(struct ccllcc *ca)
 
 static void ccllcc_init(struct sock *sk)
 {
-    pr_info("c2l2: init\n");
     struct ccllcc *ca = inet_csk_ca(sk);
+    pr_info("c2l2: init\n");
 
     ccllcc_reset(ca);
     
@@ -159,31 +159,35 @@ static inline u64 exp_approx(u64 x) {
 static inline u64 log_approx(u64 x) {
     // input: value * 100000, > 0
     // output: ln(value) * 100000
-
-    if (x == 0) return 0;
-
     u64 res = 0;
-    u64 term;
-    u64 y;
+    u64 term = 0;
+    u64 y = 0;
+    u64 y2 = 0;
+    u64 x_plus;
+    u64 x_minus;
     int i;
+
+    if (x == 0)
+        return 0;
 
     // let x_real = x / 100000
     // ln(x_real) = 2 * (y + y^3/3 + y^5/5 + ...) where y = (x-1)/(x+1)
-
-    u64 x_plus = x + 100000;
-    u64 x_minus = x - 100000;
+    x_plus = x + 100000;
+    x_minus = x - 100000;
 
     y = x_minus * 100000 / x_plus; // y = (x-1)/(x+1), scaled by 1e5
-    u64 y2 = y * y / 100000;
+    y2 = y * y / 100000;
 
     term = y;
     res = term;
 
     for (i = 3; i < 50; i += 2) {
+        u64 div;
         term = term * y2 / 100000;
-        u64 div = term / i;
+        div = term / i;
         res += div;
-        if (div < 10) break;
+        if (div < 10)
+            break;
     }
 
     return 2 * res / 1;  // ln(x) * 100000
@@ -295,7 +299,6 @@ static void atu_flow_update(const struct atu_flow_key *key, const struct atu_sta
 static bool get_atu_flow_key(struct sock *sk, struct atu_flow_key *key)
 {
     struct inet_sock *inet = inet_sk(sk);
-    struct tcp_sock *tp = tcp_sk(sk);
 
     if (!sk || !inet)
         return false;
@@ -353,6 +356,7 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     struct atu_state *atu_info;
     u32 scaled_atu;
     u64 current_time;
+    u64 timeout_ns = 0;
 
     atu_info = try_get_atu_from_bpf(sk);
 
@@ -370,7 +374,7 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 
     // Check if data is fresh (configurable timeout)
     current_time = ktime_get_ns();
-    u64 timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // ms to ns
+    timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // ms to ns
     if (atu_info->timestamp &&
         (current_time - atu_info->timestamp) > timeout_ns) {
         *atu_value = 8000;
@@ -397,22 +401,25 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
     struct tcp_sock *tp = tcp_sk(sk);
     struct ccllcc *ca = inet_csk_ca(sk);
+    u32 rtt;
+    u32 atu;
+    u64 update;
+    u32 cwnd;
+    u64 per_pkt_update;
 
     if (!tcp_is_cwnd_limited(sk))
         return;
 
     // Get current RTT
-    u32 rtt = ca->curr_rtt;
+    rtt = ca->curr_rtt;
     if (rtt == 0)
         rtt = 1;
 
     // Always get latest ATU; do not fallback to cached max_atu
-    u32 atu;
     lookup_atu_from_header(sk, &atu);
     ca->max_atu = atu;
 
     // C2L2 Algorithm: Calculate update based on ATU
-    u64 update;
     if (atu < atu_frac_lb) {
         update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_fraction / k_p_scale);
     }
@@ -434,11 +441,11 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
     }
 
     // Calculate cwnd from current rate
-    u32 cwnd = (ca->rate_kbps * rtt) / (1500 * 8 * 1000);
+    cwnd = (ca->rate_kbps * rtt) / (1500 * 8 * 1000);
     if (cwnd == 0) cwnd = 1;
 
     // Calculate per_packet_update
-    u64 per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
+    per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
 
     // Update rate
     ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
@@ -449,13 +456,14 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
 static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
     struct ccllcc *ca = inet_csk_ca(sk);
+    u32 rtt;
 
     /* Some calls are for duplicates without timestamps */
     if (sample->rtt_us < 0)
         return;
 
     /* Update RTT measurements */
-    u32 rtt = sample->rtt_us;
+    rtt = sample->rtt_us;
     if (rtt == 0)
         rtt = 1;
     
