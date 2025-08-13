@@ -14,7 +14,7 @@ KDIR ?= /lib/modules/$(shell uname -r)/build
 
 RX_IF ?= eth0
 TX_IF ?= eth1
-ARCH ?= x86
+ARCH ?= arm64
 RECV_IF ?= $(RX_IF)
 SEND_IF ?= $(TX_IF)
 
@@ -42,7 +42,12 @@ rmmod:
 	sudo rmmod ccll || true
 
 ebpf:
-	$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(shell echo $(ARCH) | tr a-z A-Z) -c $(EBPF_SRC) -o $(EBPF_OBJ)
+	$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(shell echo $(ARCH) | tr a-z A-Z) \
+		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include \
+		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include/generated \
+		-I/usr/src/linux-headers-$(shell uname -r)/include \
+		-I/usr/src/linux-headers-$(shell uname -r)/include/generated \
+		-c $(EBPF_SRC) -o $(EBPF_OBJ)
 
 daemon:
 	$(CC) -O2 -g -o $(DAEMON_BIN) $(DAEMON_SRC) -lbpf
