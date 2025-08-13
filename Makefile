@@ -14,7 +14,17 @@ KDIR ?= /lib/modules/$(shell uname -r)/build
 
 RX_IF ?= eth0
 TX_IF ?= eth1
-ARCH ?= arm64
+# Auto-detect ARCH for eBPF (uname -m -> bpf target arch)
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_M),x86_64)
+  DEFAULT_EBPF_ARCH := x86
+else ifeq ($(UNAME_M),aarch64)
+  DEFAULT_EBPF_ARCH := arm64
+else
+  # Fallback; override with ARCH=... if needed
+  DEFAULT_EBPF_ARCH := x86
+endif
+ARCH ?= $(DEFAULT_EBPF_ARCH)
 RECV_IF ?= $(RX_IF)
 SEND_IF ?= $(TX_IF)
 
@@ -26,6 +36,16 @@ DAEMON_BIN := ccll_atu_daemon
 
 CLANG ?= clang
 BPFTOOL ?= bpftool
+
+# Prefer UAPI/tools headers for eBPF builds (avoid /usr/src/linux-headers/*)
+MULTIARCH := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "")
+BPF_INC_FLAGS := -I/usr/include -I/usr/include/$(MULTIARCH) -I/usr/include/bpf \
+                  -nostdinc -isystem $(shell $(CLANG) -print-file-name=include)
+# Common eBPF CFLAGS (suppress some noisy warnings on various distros)
+BPF_CFLAGS := -O2 -g -target bpf \
+              -D__TARGET_ARCH_$(shell echo $(ARCH) | tr a-z A-Z) \
+              $(BPF_INC_FLAGS) \
+              -Wno-address-of-packed-member -Wno-gnu-variable-sized-type-not-at-end
 
 .PHONY: all kmod insmod rmmod ebpf daemon attach attach-recv attach-send pin pin-recv pin-send detach detach-recv detach-send status status-recv status-send clean \
         dkms-add dkms-build dkms-install dkms-remove dkms-reinstall install uninstall
@@ -42,17 +62,7 @@ rmmod:
 	sudo rmmod ccll || true
 
 ebpf:
-	$(CLANG) -O2 -g -target bpf -D__TARGET_ARCH_$(shell echo $(ARCH) | tr a-z A-Z) \
-		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include \
-		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include/generated \
-		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include/generated/uapi \
-		-I/usr/src/linux-headers-$(shell uname -r)/arch/$(ARCH)/include/uapi \
-		-I/usr/src/linux-headers-$(shell uname -r)/include \
-		-I/usr/src/linux-headers-$(shell uname -r)/include/generated \
-		-I/usr/src/linux-headers-$(shell uname -r)/include/uapi \
-		-nostdinc -isystem $(shell $(CLANG) -print-file-name=include) \
-		-Wno-error=invalid-output-constraint \
-		-c $(EBPF_SRC) -o $(EBPF_OBJ)
+	$(CLANG) $(BPF_CFLAGS) -c $(EBPF_SRC) -o $(EBPF_OBJ)
 
 daemon:
 	$(CC) -O2 -g -o $(DAEMON_BIN) $(DAEMON_SRC) -lbpf
@@ -79,10 +89,10 @@ attach-send: ebpf
 
 pin:
 	# Load eBPF object and pin maps
-	sudo $(BPFOOL) prog loadall $(EBPF_OBJ) /sys/fs/bpf/$(PKG_NAME) || true
-	sudo $(BPFOOL) map pin id $(shell sudo $(BPFOOL) map show | grep ack_atu_by_flow | awk '{print $$1}') /sys/fs/bpf/ack_atu_by_flow || true
-	sudo $(BPFOOL) map pin id $(shell sudo $(BPFOOL) map show | grep rx_flow_atu | awk '{print $$1}') /sys/fs/bpf/rx_flow_atu || true
-	sudo $(BPFOOL) map pin id $(shell sudo $(BPFOOL) map show | grep sk_atu_store | awk '{print $$1}') /sys/fs/bpf/sk_atu_store || true
+	sudo $(BPFTOOL) prog loadall $(EBPF_OBJ) /sys/fs/bpf/$(PKG_NAME) || true
+	sudo $(BPFTOOL) map pin id $(shell sudo $(BPFTOOL) map show | grep ack_atu_by_flow | awk '{print $$1}') /sys/fs/bpf/ack_atu_by_flow || true
+	sudo $(BPFTOOL) map pin id $(shell sudo $(BPFTOOL) map show | grep rx_flow_atu | awk '{print $$1}') /sys/fs/bpf/rx_flow_atu || true
+	sudo $(BPFTOOL) map pin id $(shell sudo $(BPFTOOL) map show | grep sk_atu_store | awk '{print $$1}') /sys/fs/bpf/sk_atu_store || true
 
 pin-recv: pin
 pin-send: pin
@@ -116,7 +126,7 @@ status:
 	sudo tc filter show dev $(TX_IF)
 	# Show pinned maps summary
 	echo "Pinned eBPF maps:"
-	sudo $(BPFOOL) map show pinned /sys/fs/bpf/
+	sudo $(BPFTOOL) map show pinned /sys/fs/bpf/
 
 # Receiver-only status
 status-recv:
