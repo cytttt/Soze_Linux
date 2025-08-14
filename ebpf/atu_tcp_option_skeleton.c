@@ -350,12 +350,18 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (opt_room < ATU_WIRE_BYTES)
         return BPF_OK;
 
-    int adj_ret = bpf_skb_adjust_room(skb, ATU_WIRE_BYTES, BPF_ADJ_ROOM_NET, 0);
+    int adj_ret = bpf_skb_adjust_room(skb, ATU_WIRE_BYTES,
+            BPF_ADJ_ROOM_NET,
+            BPF_F_ADJ_ROOM_ENCAP_L4 | BPF_F_ADJ_ROOM_FIXED_GSO);
     if (adj_ret) {
         bpf_printk("EGRESS adjust_room failed: %d\n", adj_ret);
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
+    /* re-fetch doff after adjust (defensive) */
+    if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
+        return BPF_OK;
+    doff_bytes = ((__u32)(doff_byte >> 4) & 0xF) * 4;
 
     {
         /* 1) Update IPv4 total length (+option bytes) */
