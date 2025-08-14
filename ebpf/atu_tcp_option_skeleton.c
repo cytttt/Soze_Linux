@@ -47,6 +47,7 @@
 #ifndef BUILD_SEND
 #define BUILD_SEND 0   // 0=build receiver-only by default; set to 1 when building sender
 #endif
+
 #ifndef USE_SK_STORAGE
 #define USE_SK_STORAGE 0  // default off so RX build won't try to create sk_storage
 #endif
@@ -90,7 +91,7 @@ struct {
     __uint(max_entries, 16384);
 } rx_flow_atu SEC(".maps");
 
-#if defined(BUILD_SEND)
+#if BUILD_SEND
 // Sender side: per-flow mirror for userspace daemon to read
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -100,7 +101,7 @@ struct {
 } ack_atu_by_flow SEC(".maps");
 #endif
 
-#if defined(BUILD_SEND) && USE_SK_STORAGE
+#if BUILD_SEND && USE_SK_STORAGE
 // Sender side: per-socket storage of latest ATU from ACK (optional)
 struct {
     __uint(type, BPF_MAP_TYPE_SK_STORAGE);
@@ -157,10 +158,11 @@ static __always_inline int tcp_payload_len(void *nh, void *data_end,
     return tot - l3 - l4;
 }
 
+#if !BUILD_SEND
 // -----------------------------------------------------------------------------
 // Receiver ingress (TC): read ATU from DATA payload TLV and cache per-flow
 // -----------------------------------------------------------------------------
-SEC("tc/rx_ingress_cache_atu")
+SEC("classifier/rx_ingress_cache_atu")
 int rx_ingress_cache_atu(struct __sk_buff *skb) {
     void *data     = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
@@ -228,7 +230,9 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
 
     return BPF_OK;
 }
+#endif
 
+#if !BUILD_SEND
 // -----------------------------------------------------------------------------
 // Receiver egress (TC): if pure ACK (no payload), inject TCP option with ATU
 // -----------------------------------------------------------------------------
@@ -241,7 +245,7 @@ static __always_inline int is_pure_ack(const struct tcphdr *tcp, int plen) {
     return plen == 0;
 }
 
-SEC("tc/rx_egress_add_ack_opt")
+SEC("classifier/rx_egress_add_ack_opt")
 int rx_egress_add_ack_opt(struct __sk_buff *skb)
 {
     __u16 eth_proto = 0;
@@ -386,12 +390,13 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     return BPF_OK;
 }
+#endif
 
-#if defined(BUILD_SEND)
+#if BUILD_SEND
 // -----------------------------------------------------------------------------
 // Sender ingress (TC): parse ACK TCP option (offset-based) and mirror ATU
 // -----------------------------------------------------------------------------
-SEC("tc/tx_ingress_parse_ack_opt")
+SEC("classifier/tx_ingress_parse_ack_opt")
 int tx_ingress_parse_ack_opt(struct __sk_buff *skb)
 {
     /* Offset-based parsing only: verifier-friendly */
