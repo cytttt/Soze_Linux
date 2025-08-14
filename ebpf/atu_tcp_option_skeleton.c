@@ -369,12 +369,22 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
-    /* BPF_ADJ_ROOM_NET inserts room at the L3/L4 boundary, which shifts the
-     * TCP header forward by ATU_WIRE_BYTES. Update tcp_off accordingly so that
-     * subsequent reads/writes (doff, option write, checksum updates) target the
-     * actual TCP header, not the inserted gap.
+    /* After adjust_room: where was room inserted?
+     * - On newer kernels (ENCAP_L4 supported), NET+ENCAP_L4 inserts between IP and TCP.
+     *   Then only the TCP header moves forward, so we only shift tcp_off.
+     * - On older kernels (e.g., 5.15) where ENCAP_L4 is effectively 0 (our compat
+     *   defines), NET inserts between L2 and L3. Then the whole IP header (and thus
+     *   the TCP header) moves forward by ATU_WIRE_BYTES, so we must shift *both*
+     *   ip_off and tcp_off before touching any IP/TCP fields; otherwise we would
+     *   corrupt bytes before the IP header and tcpdump will show bad TCP headers.
      */
-    tcp_off += ATU_WIRE_BYTES;
+#if BPF_F_ADJ_ROOM_ENCAP_L4 == 0
+    ip_off  += ATU_WIRE_BYTES;   /* IP header moved forward */
+    tcp_off += ATU_WIRE_BYTES;   /* TCP header moved forward */
+#else
+    tcp_off += ATU_WIRE_BYTES;   /* only TCP header moved */
+#endif
+
     /* re-fetch doff after adjust (defensive) */
     if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
         return BPF_OK;
