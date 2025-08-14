@@ -369,6 +369,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
+    /* BPF_ADJ_ROOM_NET inserts room at the L3/L4 boundary, which shifts the
+     * TCP header forward by ATU_WIRE_BYTES. Update tcp_off accordingly so that
+     * subsequent reads/writes (doff, option write, checksum updates) target the
+     * actual TCP header, not the inserted gap.
+     */
+    tcp_off += ATU_WIRE_BYTES;
     /* re-fetch doff after adjust (defensive) */
     if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
         return BPF_OK;
