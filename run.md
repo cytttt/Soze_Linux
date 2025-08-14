@@ -66,7 +66,8 @@ OBJ_TX="$(realpath ebpf/atu_tx.o)"
 
 ---
 
-## 3) Receiver: what to do
+## Receiver Steps (Complete First)
+
 The receiver does two things:
 
 **Receiver tasks:**
@@ -81,8 +82,8 @@ To open an interactive shell inside the `recv` namespace:
 ```bash
 sudo ip netns exec recv bash
 ```
-You can keep this shell open for running all `recv`-side commands.  
-**Tip:** Use two terminals — one attached to `recv` and another to `send` — so you can run both sides concurrently without switching.
+You can keep this shell open for running all `recv`-side commands.
+
 ```bash
 # Attach clsact and RX programs
 ip netns exec recv tc qdisc add dev veth-r clsact 2>/dev/null || true
@@ -99,7 +100,8 @@ ip netns exec recv tc filter show dev veth-r egress
 
 ---
 
-## 4) Sender: what to do
+## Sender Steps (Run After Receiver)
+
 The sender does two things:
 
 **Sender tasks:**
@@ -110,6 +112,12 @@ The sender does two things:
 2) Mirror values to `ack_atu_by_flow` (for daemon) and (optionally) `sk_storage` (for kernel CC direct access).
 
 ### Steps (in `send` namespace)
+To open an interactive shell inside the `send` namespace:
+```bash
+sudo ip netns exec send bash
+```
+You can keep this shell open for running all `send`-side commands.
+
 ```bash
 # Attach clsact and TX program
 ip netns exec send tc qdisc add dev veth-s clsact 2>/dev/null || true
