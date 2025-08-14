@@ -322,7 +322,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         atu_fallback.denom = 10000;
         atu_ptr = &atu_fallback;
         use_fallback = true;
-        bpf_printk("EGRESS fallback ATU %u/%u\n", numer_host, denom_host);
+        bpf_printk("EGRESS fallback ATU %u/%u\n", atu_ptr->numer, atu_ptr->denom);
         bpf_printk("flow s=%x d=%x\n", k.saddr, k.daddr);
         bpf_printk("ports %u->%u\n", bpf_ntohs(k.sport), bpf_ntohs(k.dport));
 #else
