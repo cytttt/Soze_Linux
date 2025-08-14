@@ -163,7 +163,6 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
     void *data     = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 
-    int __tlv_found = 0;
     __u16 ethp;
     if (parse_eth(&data, &data_end, &ethp) < 0) return BPF_OK;
     if (ethp != ETH_P_IP) return BPF_OK;
@@ -172,39 +171,51 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
     if (parse_ipv4(&data, &data_end, &ip) < 0) return BPF_OK;
 
     struct tcphdr *tcp;
-    void *payload;
-    payload = data;
+    void *payload = data; /* data now points to TCP header end */
     if (parse_tcp(&payload, &data_end, &tcp) < 0) return BPF_OK;
 
     int plen = tcp_payload_len((void *)ip, data_end, ip, tcp);
-    if (plen <= 0) return BPF_OK; // no payload
 
-    // Expect TLV at payload start: [type][len][4B numer][4B denom]
-    if (payload + 2 + ATU_DATA_BYTES > data_end) return BPF_OK;
-    __u8 tlv_type = *(__u8 *)payload;
-    __u8 tlv_len  = *(__u8 *)(payload + 1);
-    if (tlv_type != SW_TLV_TYPE_ATU || tlv_len != 8) return BPF_OK;
-    __u32 numer_net, denom_net;
-    __builtin_memcpy(&numer_net, payload + 2, sizeof(__u32));
-    __builtin_memcpy(&denom_net, payload + 6, sizeof(__u32));
-    __u32 numer_host = bpf_ntohl(numer_net);
-    __u32 denom_host = bpf_ntohl(denom_net);
-
+    /* Prepare flow key (sender->receiver for DATA). */
     struct flow4_key k = {};
     fill_flow4_key(&k, ip, tcp);
-    struct atu_val atu_host = {
-        .numer = numer_host,
-        .denom = denom_host,
-    };
-    __tlv_found = 1;
-    bpf_map_update_elem(&rx_flow_atu, &k, &atu_host, BPF_ANY);
+
+    /* Try to parse TLV at payload start: [type][len][u32 numer][u32 denom] */
+    int tlv_ok = 0;
+    __u32 numer_host = 0, denom_host = 0;
+
+    if (plen > 0) {
+        if (payload + 2 + ATU_DATA_BYTES <= data_end) {
+            __u8 tlv_type = *(__u8 *)payload;
+            __u8 tlv_len  = *(__u8 *)(payload + 1);
+            if (tlv_type == SW_TLV_TYPE_ATU && tlv_len == 8) {
+                __u32 numer_net = 0, denom_net = 0;
+                __builtin_memcpy(&numer_net,  payload + 2, sizeof(__u32));
+                __builtin_memcpy(&denom_net,  payload + 6, sizeof(__u32));
+                numer_host = bpf_ntohl(numer_net);
+                denom_host = bpf_ntohl(denom_net);
+                tlv_ok = 1;
+            }
+        }
+    }
 
 #if ATU_TEST_MODE
-    if (!__tlv_found) {
-        struct atu_val __tmp = { .numer = 9000, .denom = 10000 };
-        bpf_map_update_elem(&rx_flow_atu, &k, &__tmp, BPF_ANY);
+    /* If TLV not present, synthesize a default for testing so egress can insert. */
+    if (!tlv_ok) {
+        numer_host = 9000;
+        denom_host = 10000;
+        tlv_ok = 1;
     }
 #endif
+
+    if (tlv_ok) {
+        struct atu_val atu_host = {
+            .numer = numer_host,
+            .denom = denom_host,
+        };
+        bpf_map_update_elem(&rx_flow_atu, &k, &atu_host, BPF_ANY);
+    }
+
     return BPF_OK;
 }
 

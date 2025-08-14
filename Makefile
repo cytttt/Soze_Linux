@@ -56,7 +56,7 @@ BPF_CFLAGS := -O2 -g -target bpf \
               -Wno-address-of-packed-member -Wno-gnu-variable-sized-type-not-at-end
 
 # Test-mode toggle (0=off, 1=on). When on, RX fills default numer/denom if TLV missing.
-ATU_TEST_MODE ?= 0
+ATU_TEST_MODE ?= 1
 BPF_CFLAGS += -DATU_TEST_MODE=$(ATU_TEST_MODE)
 
 # Sender-side sk_storage toggle (0=omit, 1=include). Some kernels reject SK_STORAGE at tc.
