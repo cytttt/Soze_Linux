@@ -361,7 +361,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* 1) Update IPv4 total length (+option bytes) */
         __u16 new_tot = tot + ATU_WIRE_BYTES;
         __be16 new_tot_be = bpf_htons(new_tot);
-
+        bpf_printk("EGRESS iplen %u -> %u\n", tot, new_tot);
         if (bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
                                 &new_tot_be, sizeof(new_tot_be), 0)) {
             bpf_printk("EGRESS store tot_len failed\n");

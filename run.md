@@ -77,3 +77,10 @@ bash setup-tx.bash
 ```
 ip netns exec send bash -lc 'dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000'
 ```
+
+### Eval
+```
+sudo ip netns exec send tcpdump -i veth-s -vvv -s 0 -n 'tcp[tcpflags] & tcp-ack != 0' -c 5
+
+sudo cat /sys/kernel/debug/tracing/trace_pipe
+```
