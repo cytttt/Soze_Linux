@@ -3,8 +3,8 @@ ip netns exec recv sh -lc '
   ethtool -K veth-r tso off gso off gro off lro off || true
   tc qdisc del dev veth-r clsact 2>/dev/null || true
   tc qdisc add dev veth-r clsact
-  tc filter add dev veth-r ingress pref 10 bpf da obj ebpf/atu_rx.o sec tc/rx_ingress_cache_atu
-  tc filter add dev veth-r egress  pref 10 bpf da obj ebpf/atu_rx.o sec tc/rx_egress_add_ack_opt
+  tc filter add dev veth-r ingress pref 10 bpf da obj ebpf/atu_rx.o sec classifier/rx_ingress_cache_atu
+  tc filter add dev veth-r egress  pref 10 bpf da obj ebpf/atu_rx.o sec classifier/rx_egress_add_ack_opt
   tc -s -d filter show dev veth-r ingress
   tc -s -d filter show dev veth-r egress
 '

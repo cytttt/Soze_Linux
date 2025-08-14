@@ -305,6 +305,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (payload_len != 0)
         return BPF_OK;
 
+    bpf_printk("EGRESS pure ACK, doff=%u, room=%u\n", doff_bytes, 60 - doff_bytes);
+
     __u32 saddr = 0, daddr = 0;
     __u16 sport = 0, dport = 0;
     (void)bpf_skb_load_bytes(skb, ip_off + 12, &saddr, 4);
@@ -348,20 +350,30 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (opt_room < ATU_WIRE_BYTES)
         return BPF_OK;
 
-    if (bpf_skb_adjust_room(skb, ATU_WIRE_BYTES, BPF_ADJ_ROOM_NET, 0))
+    int adj_ret = bpf_skb_adjust_room(skb, ATU_WIRE_BYTES, BPF_ADJ_ROOM_NET, 0);
+    if (adj_ret) {
+        bpf_printk("EGRESS adjust_room failed: %d\n", adj_ret);
         return BPF_OK;
+    }
+    bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
 
     {
+        /* 1) Update IPv4 total length (+option bytes) */
         __u16 new_tot = tot + ATU_WIRE_BYTES;
         __be16 new_tot_be = bpf_htons(new_tot);
 
-        bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
-                            &new_tot_be, sizeof(new_tot_be), 0);
+        if (bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
+                                &new_tot_be, sizeof(new_tot_be), 0)) {
+            bpf_printk("EGRESS store tot_len failed\n");
+            return BPF_OK;
+        }
+        /* Update IPv4 header checksum incrementally */
         bpf_l3_csum_replace(skb,
                             ip_off + offsetof(struct iphdr, check),
                             (__be32)tot_be, (__be32)new_tot_be,
                             sizeof(__u16));
 
+        /* 2) Compose the ATU option we are inserting */
         __u8 opt_buf[ATU_WIRE_BYTES] = {0};
         __u32 numer_be = bpf_htonl(atu_ptr->numer);
         __u32 denom_be = bpf_htonl(atu_ptr->denom);
@@ -373,19 +385,41 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         opt_buf[10] = 1; /* NOP */
         opt_buf[11] = 1; /* NOP */
 
+        /* 3) Write option at the end of the existing TCP header */
         if (bpf_skb_store_bytes(skb, tcp_off + doff_bytes,
-                                opt_buf, ATU_WIRE_BYTES, 0))
+                                opt_buf, ATU_WIRE_BYTES, 0)) {
+            bpf_printk("EGRESS write opt failed\n");
             return BPF_OK;
+        }
 
-
+        /* 4) Update TCP data offset */
         __u8 new_doff_words = (doff_bytes + ATU_WIRE_BYTES) / 4;
         __u8 new_doff_byte  = (new_doff_words << 4) | (doff_byte & 0x0F);
         bpf_skb_store_bytes(skb, tcp_off + 12, &new_doff_byte, 1, 0);
 
+        /* 5) Fix TCP checksum:
+         *    (a) Adjust pseudo header TCP length (tot_len - ihl) change
+         *    (b) Add checksum contribution of the inserted option bytes
+         */
+        __u32 old_pl = ( __u32 )(tot - ihl_bytes);
+        __u32 new_pl = ( __u32 )(new_tot - ihl_bytes);
+        __u32 old_pl_be32 = bpf_htonl(old_pl);
+        __u32 new_pl_be32 = bpf_htonl(new_pl);
 
+        /* (a) pseudo header length update */
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
-                            0, 0, BPF_F_MARK_MANGLED_0);
+                            old_pl_be32, new_pl_be32,
+                            BPF_F_PSEUDO_HDR);
+
+        /* (b) add the checksum of the inserted option bytes */
+        __u32 opt_csum = 0;
+        opt_csum = bpf_csum_diff(0, 0, opt_buf, ATU_WIRE_BYTES, 0);
+        bpf_l4_csum_replace(skb,
+                            tcp_off + offsetof(struct tcphdr, check),
+                            0, opt_csum, 0);
+
+        bpf_printk("EGRESS wrote option + fixed csum\n");
     }
 
     return BPF_OK;

@@ -8,7 +8,7 @@ echo 1 | tee /sys/kernel/debug/tracing/tracing_on >/dev/null
 # bpf
 mkdir -p /sys/fs/bpf
 mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf
-mkdir -p /sys/fs/bpf/tc
+mkdir -p /sys/fs/bpf/tc /sys/fs/bpf/atu_rx /sys/fs/bpf/atu_tx
 
 ip netns add send
 ip netns add recv
