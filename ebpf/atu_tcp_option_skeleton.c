@@ -28,7 +28,9 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/tcp.h>
+
 #include <linux/in.h>
+#include <stdbool.h>
 
 // ----- Configurable constants -----
 #define ATU_TCP_OPT_KIND   253        // Experimental/Private Use
@@ -213,6 +215,9 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
             .numer = numer_host,
             .denom = denom_host,
         };
+        bpf_printk("RX cache ATU %u/%u for %x:%u->%x:%u\n",
+                   atu_host.numer, atu_host.denom,
+                   k.saddr, k.sport, k.daddr, k.dport);
         bpf_map_update_elem(&rx_flow_atu, &k, &atu_host, BPF_ANY);
     }
 
@@ -307,8 +312,25 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     k.proto = IPPROTO_TCP;
 
     struct atu_val *atu_ptr = bpf_map_lookup_elem(&rx_flow_atu, &k);
-    if (!atu_ptr)
+    struct atu_val atu_fallback;
+    bool use_fallback = false;
+    if (!atu_ptr) {
+#if ATU_TEST_MODE
+        atu_fallback.numer = 9000;
+        atu_fallback.denom = 10000;
+        atu_ptr = &atu_fallback;
+        use_fallback = true;
+        bpf_printk("EGRESS fallback ATU %u/%u for %x:%u->%x:%u\n",
+                   atu_ptr->numer, atu_ptr->denom,
+                   k.saddr, k.sport, k.daddr, k.dport);
+#else
         return BPF_OK;
+#endif
+    } else {
+        bpf_printk("EGRESS found ATU %u/%u for %x:%u->%x:%u\n",
+                   atu_ptr->numer, atu_ptr->denom,
+                   k.saddr, k.sport, k.daddr, k.dport);
+    }
 
     opt_room = 60 - doff_bytes;
     if (opt_room < ATU_WIRE_BYTES)
