@@ -220,6 +220,9 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
         bpf_printk("flow s=%x d=%x\n", k.saddr, k.daddr);
         bpf_printk("ports %u->%u\n", bpf_ntohs(k.sport), bpf_ntohs(k.dport));
 
+        bpf_printk("key sa=%x da=%x\n", k.saddr, k.daddr);
+        bpf_printk("key sp=%x dp=%x\n", k.sport, k.dport);
+        bpf_printk("key proto=%x\n", k.proto);
         bpf_map_update_elem(&rx_flow_atu, &k, &atu_host, BPF_ANY);
     }
 
@@ -313,6 +316,9 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     k.dport = sport;
     k.proto = IPPROTO_TCP;
 
+    bpf_printk("ekey sa=%x da=%x\n", k.saddr, k.daddr);
+    bpf_printk("ekey sp=%x dp=%x\n", k.sport, k.dport);
+    bpf_printk("ekey proto=%x\n", k.proto);
     struct atu_val *atu_ptr = bpf_map_lookup_elem(&rx_flow_atu, &k);
     struct atu_val atu_fallback;
     bool use_fallback = false;
