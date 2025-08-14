@@ -414,7 +414,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
         /* (b) add the checksum of the inserted option bytes */
         __u32 opt_csum = 0;
-        opt_csum = bpf_csum_diff(0, 0, opt_buf, ATU_WIRE_BYTES, 0);
+        opt_csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             0, opt_csum, 0);
