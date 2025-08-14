@@ -33,6 +33,17 @@
 #include <stdbool.h>
 
 // ----- Configurable constants -----
+/* --- compat for older kernels/headers (e.g., 5.15) ----------------------- */
+#ifndef BPF_F_ADJ_ROOM_ENCAP_L3
+#define BPF_F_ADJ_ROOM_ENCAP_L3 0
+#endif
+#ifndef BPF_F_ADJ_ROOM_ENCAP_L4
+#define BPF_F_ADJ_ROOM_ENCAP_L4 0
+#endif
+#ifndef BPF_F_ADJ_ROOM_FIXED_GSO
+#define BPF_F_ADJ_ROOM_FIXED_GSO 0
+#endif
+/* ------------------------------------------------------------------------- */
 #define ATU_TCP_OPT_KIND   253        // Experimental/Private Use
 #define ATU_TCP_OPT_LEN    10         // Kind(1)+Len(1)+ATU(8)
 #define ATU_DATA_BYTES     8          // 8-byte ATU payload (u32 numer + u32 denom)
