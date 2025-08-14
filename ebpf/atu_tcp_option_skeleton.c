@@ -491,69 +491,75 @@ int tx_ingress_parse_ack_opt(struct __sk_buff *skb)
 
     #pragma clang loop unroll(full)
     for (int iter = 0; iter < 40; iter++) {
+        /* need at least 1 byte to read kind */
         if (off + 1 > end)
             break;
-    
+
         __u8 kind = 0;
         if (bpf_skb_load_bytes(skb, off, &kind, 1) < 0)
             break;
-    
+
         if (kind == 0)  /* EOL */
             break;
-    
+
         if (kind == 1) { /* NOP */
             off += 1;
             continue;
         }
-    
-        if (kind == ATU_TCP_OPT_KIND) {
-            __u8 len = 0;
-    
-            if (off + 2 > end)
+
+        /* For variable-length options, we must read len and skip by len */
+        if (off + 2 > end)
+            break;
+
+        __u8 len = 0;
+        if (bpf_skb_load_bytes(skb, off + 1, &len, 1) < 0)
+            break;
+
+        /* basic sanity: len must be at least 2 and not exceed remaining header */
+        if (len < 2)
+            break;
+
+        __u32 next = off + len;
+        if (next > end)
+            break;
+
+        if (kind == ATU_TCP_OPT_KIND && len == ATU_TCP_OPT_LEN) {
+            __u32 numer_net = 0, denom_net = 0;
+            if (bpf_skb_load_bytes(skb, off + 2, &numer_net, 4) < 0)
                 break;
-            if (bpf_skb_load_bytes(skb, off + 1, &len, 1) < 0)
+            if (bpf_skb_load_bytes(skb, off + 6, &denom_net, 4) < 0)
                 break;
-    
-            if (len == ATU_TCP_OPT_LEN && off + len <= end) {
-                __u32 numer_net = 0, denom_net = 0;
-                if (bpf_skb_load_bytes(skb, off + 2, &numer_net, 4) < 0)
-                    break;
-                if (bpf_skb_load_bytes(skb, off + 6, &denom_net, 4) < 0)
-                    break;
-    
-                __u32 numer = bpf_ntohl(numer_net);
-                __u32 denom = bpf_ntohl(denom_net);
-    
-    #if defined(BUILD_SEND) && USE_SK_STORAGE
-                struct sock *sk = (struct sock *)(long)skb->sk;
-                if (sk) {
-                    struct atu_val *slot = bpf_sk_storage_get(&sk_atu_store, sk, 0,
-                                                    BPF_SK_STORAGE_GET_F_CREATE);
-                    if (slot) {
-                        slot->numer = numer;
-                        slot->denom = denom;
-                    }
+
+            __u32 numer = bpf_ntohl(numer_net);
+            __u32 denom = bpf_ntohl(denom_net);
+
+#if defined(BUILD_SEND) && USE_SK_STORAGE
+            struct sock *sk = (struct sock *)(long)skb->sk;
+            if (sk) {
+                struct atu_val *slot = bpf_sk_storage_get(&sk_atu_store, sk, 0,
+                                                BPF_SK_STORAGE_GET_F_CREATE);
+                if (slot) {
+                    slot->numer = numer;
+                    slot->denom = denom;
                 }
-    #endif
-    #if defined(BUILD_SEND)
-                struct flow4_key fk = {};
-                fk.saddr = saddr;
-                fk.daddr = daddr;
-                fk.sport = sport;
-                fk.dport = dport;
-                fk.proto = IPPROTO_TCP;
-    
-                struct atu_val vv = { .numer = numer, .denom = denom };
-                bpf_map_update_elem(&ack_atu_by_flow, &fk, &vv, BPF_ANY);
-    #endif
-                break;
             }
-    
-            off += 1;
-            continue;
+#endif
+#if defined(BUILD_SEND)
+            struct flow4_key fk = {};
+            fk.saddr = saddr;
+            fk.daddr = daddr;
+            fk.sport = sport;
+            fk.dport = dport;
+            fk.proto = IPPROTO_TCP;
+
+            struct atu_val vv = { .numer = numer, .denom = denom };
+            bpf_map_update_elem(&ack_atu_by_flow, &fk, &vv, BPF_ANY);
+#endif
+            break;
         }
-    
-        off += 1;
+
+        /* not our option: skip to the next option by its length */
+        off = next;
     }
 
 
