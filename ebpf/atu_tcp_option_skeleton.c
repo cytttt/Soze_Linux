@@ -543,13 +543,11 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
         /* (a) IPv4 pseudo header: src(4) dst(4) zero(1) proto(1) tcp_len(2) */
         __u8 ph[12] = {0};
-        __u32 saddr = 0, daddr = 0; __u8 proto_u8 = IPPROTO_TCP;
-        (void)bpf_skb_load_bytes(skb, ip_off + 12, &saddr, 4);
-        (void)bpf_skb_load_bytes(skb, ip_off + 16, &daddr, 4);
-        __builtin_memcpy(&ph[0],  &saddr, 4);
-        __builtin_memcpy(&ph[4],  &daddr, 4);
+        /* src/dst in network order directly into pseudo header */
+        if (bpf_skb_load_bytes(skb, ip_off + 12, &ph[0], 4) < 0) return BPF_OK;
+        if (bpf_skb_load_bytes(skb, ip_off + 16, &ph[4], 4) < 0) return BPF_OK;
         ph[8]  = 0;
-        ph[9]  = proto_u8;
+        ph[9]  = IPPROTO_TCP;
         *(__be16 *)&ph[10] = bpf_htons(tcp_len);
 
         __u32 sum = 0;
@@ -587,6 +585,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         __u16 sum16 = (~sum) & 0xFFFF; /* network order write below */
         __be16 sum_be = bpf_htons(sum16);
 
+        bpf_printk("EGRESS csum16=%x\n", (__u32)sum16);
         if (bpf_skb_store_bytes(skb, tcp_off + chk_off, &sum_be, sizeof(sum_be), 0)) {
             bpf_printk("EGRESS write full csum failed\n");
             return BPF_OK;
