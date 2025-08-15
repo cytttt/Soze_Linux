@@ -585,24 +585,29 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             __u16 tcp_len = (__u16)(new_tot - ihl_bytes);
             *(__be16 *)&ph[10] = bpf_htons(tcp_len);
 
-            __u8 tcpbuf[60] = {0};
             __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;
             if (doff_new > 60) doff_new = 60;
-            /* Copy TCP header bytes one by one to satisfy verifier. */
-            #pragma clang loop unroll(full)
-            for (int i = 0; i < 60; i++) {
-                if ((__u32)i >= doff_new) break;
-                __u8 b = 0;
-                if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) goto _no_full;
-                tcpbuf[i] = b;
-            }
-            /* Zero checksum field (offset 16..17) */
-            tcpbuf[offsetof(struct tcphdr, check) + 0] = 0;
-            tcpbuf[offsetof(struct tcphdr, check) + 1] = 0;
 
+            /* Sum TCP header directly from skb in 2-byte chunks, skipping checksum field 16..17. */
+            /* First: bytes 0..15 (inclusive) => 16 bytes total */
             __u32 sum = 0;
             sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
-            sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, sum);
+            #pragma clang loop unroll(full)
+            for (int i = 0; i < 16; i += 2) {
+                __u16 w = 0;
+                if ((__u32)(i + 2) > doff_new) break;
+                if (bpf_skb_load_bytes(skb, tcp_off + i, &w, 2) < 0) goto _no_full;
+                sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)&w, 2, sum);
+            }
+            /* Second: bytes 18..(doff_new-1) (skip checksum at 16..17) */
+            #pragma clang loop unroll(full)
+            for (int j = 18; j < 60; j += 2) {
+                __u16 w2 = 0;
+                if ((__u32)j >= doff_new) break;
+                if ((__u32)(j + 2) > doff_new) break;
+                if (bpf_skb_load_bytes(skb, tcp_off + j, &w2, 2) < 0) goto _no_full;
+                sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)&w2, 2, sum);
+            }
             /* fold */
             sum = (sum & 0xFFFF) + (sum >> 16);
             sum = (sum & 0xFFFF) + (sum >> 16);
