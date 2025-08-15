@@ -638,14 +638,14 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 /* ensure checksum field (bytes 16..17) are treated as zero even if store failed earlier */
                 if (i == 16) w &= bpf_htonl(0xFFFF0000u); /* zero low 16 bits in network layout */
                 {
-                    static const int max_dbg = 6; /* print first few words only */
+                    static const int max_dbg = 12; /* print first few words only */
                     if (i < 4 * max_dbg) {
                         bpf_printk("DBG w@%u=%x\n", (unsigned)i, w);
                     }
                 }
                 sum = bpf_csum_diff(NULL, 0, &w, 4, sum);
                 {
-                    static const int max_dbg2 = 6;
+                    static const int max_dbg2 = 12;
                     if (i < 4 * max_dbg2) {
                         bpf_printk("DBG sum_i=%x\n", sum);
                     }
