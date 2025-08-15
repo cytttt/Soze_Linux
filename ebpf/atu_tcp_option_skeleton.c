@@ -657,15 +657,21 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             }
         }
 
-        /* Write back checksum using PSEUDO_HDR mode (sum already includes pseudo header) */
-        (void)bpf_l4_csum_replace(skb,
-            tcp_off + offsetof(struct tcphdr, check),
-            0, sum,
-            BPF_F_MARK_MANGLED_0 | BPF_F_PSEUDO_HDR);
+        /* Final fold to 16-bit Internet checksum and write back directly */
+        {
+            /* fold 32-bit sum to 16 bits */
+            __u32 folded = sum;
+            folded = (folded & 0xFFFF) + (folded >> 16);
+            folded = (folded & 0xFFFF) + (folded >> 16);
+            __u16 csum16 = (~folded) & 0xFFFF;
+            __be16 be = bpf_htons(csum16);
+            (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &be, 2, 0);
+            bpf_printk("DBG write tcp csum=%x (host=%x)\n", (__u32)be, (__u32)csum16);
+        }
     _skip_l4fix: ;
     }
 
-    bpf_printk("EGRESS wrote option (no L4 csum update)\n");
+    bpf_printk("EGRESS wrote option + L4 csum set\n");
     /* Optional: After fixing TCP checksum (at the end of the function), log final IP total length and TCP doff */
     {
         __u8 final_doff_b = 0; __u16 final_tot_be2 = 0;
