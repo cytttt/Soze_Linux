@@ -48,7 +48,7 @@ bash local-setup-rx.bash
 ```
 #### test
 ```
-nc -l -p 5000 >/dev/null
+nc -lk -p 5000
 
 bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 ```
