@@ -683,7 +683,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             /* Compute checksum = ~(sum(pseudo) + sum(tcp header)). */
             __u32 sumx = 0;
             sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph2, sizeof(ph2), 0);
-            sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, sumx);
+            sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, 60, sumx);
             /* fold */
             sumx = (sumx & 0xFFFF) + (sumx >> 16);
             sumx = (sumx & 0xFFFF) + (sumx >> 16);
