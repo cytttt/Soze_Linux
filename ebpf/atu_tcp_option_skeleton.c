@@ -387,10 +387,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
-        /* We haven't updated doff yet when ensuring linearity here; hence use
-         * old doff_bytes + ATU_WIRE_BYTES. Later, after doff is updated and
-         * read back, need_final uses tcp_off + cur_doff_bytes. */
-        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES; /* tcp_off unchanged; add inserted bytes explicitly */
+        /* Use old doff_bytes + ATU_WIRE_BYTES, since we haven't updated doff yet. */
+        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES;
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
             return BPF_OK;
@@ -400,11 +398,6 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             return BPF_OK;
         }
     }
-
-    /* Re-read doff after adjust, in case GSO/headers were modified. */
-    if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
-        return BPF_OK;
-    doff_bytes = ((__u32)(doff_byte >> 4) & 0xF) * 4;
 
     /* ----------------------- L3: IPv4 total length + checksum ----------------------- */
     __u16 new_tot = tot + ATU_WIRE_BYTES;
@@ -434,6 +427,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     opt_buf[10] = 1; /* NOP */
     opt_buf[11] = 1; /* NOP */
 
+    /* Compute doff_new from the originally-read doff_bytes; do not re-read doff
+     * in between adjust_room and this update to avoid offset confusion. */
     /* (1) Update TCP data offset **before** writing option bytes. Some kernels
      *     reject writing beyond the old header length if doff hasn't grown yet.
      */
@@ -443,7 +438,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("EGRESS store doff failed\n");
         return BPF_OK;
     }
-    /* Debug/sanity: read back the updated doff byte and verify */
+    /* Debug/sanity: read back the updated doff byte and verify (validation only) */
     {
         __u8 rb_doff = 0;
         if (bpf_skb_load_bytes(skb, tcp_off + 12, &rb_doff, 1) == 0) {
@@ -460,11 +455,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     /* (2) Now write the option bytes at the end of the old TCP header. */
     {
-        __u8 cur_doff_byte = 0;
-        if (bpf_skb_load_bytes(skb, tcp_off + 12, &cur_doff_byte, 1) < 0)
-            return BPF_OK;
-        __u32 cur_doff_bytes = ((__u32)(cur_doff_byte >> 4) & 0xF) * 4;
-        __u32 need_final = tcp_off + cur_doff_bytes; /* cur_doff_bytes already includes the inserted bytes */
+        __u32 expected_new_doff = doff_bytes + ATU_WIRE_BYTES; /* grow by exactly what we inserted */
+        __u32 need_final = tcp_off + expected_new_doff;
         if (need_final > (__u32)skb->len) {
             bpf_printk("EGRESS need_final(%u) > skb->len(%u)\n", need_final, skb->len);
             return BPF_OK;
