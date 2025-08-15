@@ -313,42 +313,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
 
     bpf_printk("EGRESS pure ACK, doff=%u, room=%u\n", doff_bytes, 60 - doff_bytes);
-    {
-        __u32 doff_orig = doff_bytes;     // 原本的 header 長度
-        __u16 tcp_len0  = (__u16)(tot - ihl_bytes);
-
-        __u8 tcp0[60] = {0};
-        // copy 0..15
-        #pragma clang loop unroll(full)
-        for (int i = 0; i < 16 && i < doff_orig; i++) {
-            __u8 b=0; if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) break;
-            tcp0[i] = b;
-        }
-        // zero checksum field
-        if (doff_orig > 16) tcp0[16] = 0;
-        if (doff_orig > 17) tcp0[17] = 0;
-        // copy 18..doff_orig-1
-        #pragma clang loop unroll(full)
-        for (int j = 18; j < doff_orig; j++) {
-            __u8 b=0; if (bpf_skb_load_bytes(skb, tcp_off + j, &b, 1) < 0) break;
-            tcp0[j] = b;
-        }
-
-        __u8 ph0[12] = {0};
-        bpf_skb_load_bytes(skb, ip_off + 12, &ph0[0], 4);
-        bpf_skb_load_bytes(skb, ip_off + 16, &ph0[4], 4);
-        ph0[9] = IPPROTO_TCP;
-        *(__be16 *)&ph0[10] = bpf_htons(tcp_len0);
-
-        __u32 sum0 = 0;
-        sum0 = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph0, sizeof(ph0), sum0);
-        sum0 = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcp0, doff_orig, sum0);
-        sum0 = (sum0 & 0xFFFF) + (sum0 >> 16);
-        sum0 = (sum0 & 0xFFFF) + (sum0 >> 16);
-        __u16 chk0 = ~sum0;
-
-        bpf_printk("DBG pre_full_recomp(host)=%x\n", (__u32)chk0);
-    }
+    
     __u32 saddr = 0, daddr = 0;
     __u16 sport = 0, dport = 0;
     (void)bpf_skb_load_bytes(skb, ip_off + 12, &saddr, 4);
