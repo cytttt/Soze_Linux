@@ -588,26 +588,31 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
             /* Manual 16-bit one's complement sum (network order), no bpf_csum_diff. */
             __u32 sum32 = 0;
+            /* --- Segment accumulators for debug --- */
+            __u32 sum_ph = 0;       /* pseudo header partial */
+            __u32 sum_tcp_a = 0;    /* TCP bytes 0..15 */
+            __u32 sum_tcp_b = 0;    /* TCP bytes 18..(doff_new-1) */
 
             /* Pseudo header: src(4) + dst(4) + zero(1)+proto(1) + tcp_len(2) */
             __u8 ph_srcdst[8] = {0};
             if (bpf_skb_load_bytes(skb, ip_off + 12, ph_srcdst, 8) < 0) goto _no_full;
             /* Add src */
             __u16 w = ((__u16)ph_srcdst[0] << 8) | (__u16)ph_srcdst[1];
-            sum32 = add16_acc(sum32, w);
+            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
             w = ((__u16)ph_srcdst[2] << 8) | (__u16)ph_srcdst[3];
-            sum32 = add16_acc(sum32, w);
+            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
             /* Add dst */
             w = ((__u16)ph_srcdst[4] << 8) | (__u16)ph_srcdst[5];
-            sum32 = add16_acc(sum32, w);
+            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
             w = ((__u16)ph_srcdst[6] << 8) | (__u16)ph_srcdst[7];
-            sum32 = add16_acc(sum32, w);
+            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
             /* zero + proto */
             w = (0u << 8) | (unsigned)IPPROTO_TCP;
-            sum32 = add16_acc(sum32, w);
-            /* tcp length */
+            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
+            /* tcp length (host order 0x002c) */
             w = (__u16)(new_tot - ihl_bytes);
-            sum32 = add16_acc(sum32, w);
+            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
+            bpf_printk("DBG sum_ph=%x\n", (sum_ph & 0xFFFF));
 
             /* TCP header bytes (network order), excluding checksum field 16..17 */
             /* First: bytes 0..15 */
@@ -620,7 +625,9 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                     goto _no_full;
                 w = ((__u16)pair[0] << 8) | (__u16)pair[1];
                 sum32 = add16_acc(sum32, w);
+                sum_tcp_a = add16_acc(sum_tcp_a, w);
             }
+            bpf_printk("DBG sum_tcp_a=%x\n", (sum_tcp_a & 0xFFFF));
             /* Then: bytes 18..(doff_new-1) */
             #pragma clang loop unroll(full)
             for (int j = 18; j < 60; j += 2) {
@@ -631,6 +638,23 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                     goto _no_full;
                 w = ((__u16)pair2[0] << 8) | (__u16)pair2[1];
                 sum32 = add16_acc(sum32, w);
+                sum_tcp_b = add16_acc(sum_tcp_b, w);
+            }
+            bpf_printk("DBG sum_tcp_b=%x\n", (sum_tcp_b & 0xFFFF));
+
+            /* Option bytes sanity: recompute 12B option sum from opt_buf for comparison */
+            {
+                __u32 opt_chk = 0; __u16 wopt = 0;
+                /* opt_buf layout: [KIND][LEN][8B data][NOP][NOP] */
+                /* words: 0:(KIND<<8|LEN), 1..4: 8 bytes data, 5: (NOP<<8|NOP) */
+                wopt = ((__u16)opt_buf[0] << 8) | (__u16)opt_buf[1];
+                opt_chk = add16_acc(opt_chk, wopt);
+                wopt = ((__u16)opt_buf[2] << 8) | (__u16)opt_buf[3]; opt_chk = add16_acc(opt_chk, wopt);
+                wopt = ((__u16)opt_buf[4] << 8) | (__u16)opt_buf[5]; opt_chk = add16_acc(opt_chk, wopt);
+                wopt = ((__u16)opt_buf[6] << 8) | (__u16)opt_buf[7]; opt_chk = add16_acc(opt_chk, wopt);
+                wopt = ((__u16)opt_buf[8] << 8) | (__u16)opt_buf[9]; opt_chk = add16_acc(opt_chk, wopt);
+                wopt = ((__u16)opt_buf[10] << 8) | (__u16)opt_buf[11]; opt_chk = add16_acc(opt_chk, wopt);
+                bpf_printk("DBG sum_opt=%x\n", (opt_chk & 0xFFFF));
             }
 
             /* finalize: fold thrice then complement */
