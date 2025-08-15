@@ -372,24 +372,19 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
-    /* With BPF_ADJ_ROOM_NET, space is inserted at the L3/L4 boundary
-     * (i.e., at the start of the TCP header). Only the TCP header and
-     * payload move forward by ATU_WIRE_BYTES; the IPv4 header stays in
-     * place. Keep offsets in sync accordingly.
+    /* With BPF_ADJ_ROOM_NET the space is inserted at the L3/L4 boundary,
+     * but the TCP header start offset (tcp_off) relative to skb->data remains
+     * unchanged. The new end of (old TCP header + inserted option) is
+     * (T0 + doff_bytes + ATU_WIRE_BYTES), which equals (tcp_off + doff_bytes
+     * + ATU_WIRE_BYTES). Therefore, do NOT advance tcp_off here; keep it at T0.
      */
-    /* Note: tcp_off is moved forward by ATU_WIRE_BYTES, so the old header end
-     * (T0 + doff_bytes) becomes (tcp_off + doff_bytes - ATU_WIRE_BYTES).
-     * The new header end (after inserting ATU_WIRE_BYTES) is
-     * (T0 + doff_bytes + ATU_WIRE_BYTES) == (tcp_off + doff_bytes).
-     */
-    tcp_off += ATU_WIRE_BYTES;
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
-        /* After adjust_room, tcp_off advanced by ATU_WIRE_BYTES. The new end of
+        /* After adjust_room, tcp_off is NOT advanced. The new end of
          * (old TCP header + inserted option) is T0 + doff_bytes + ATU_WIRE_BYTES,
-         * which equals (tcp_off) + doff_bytes. So do NOT add ATU_WIRE_BYTES again. */
-        __u32 need = tcp_off + doff_bytes;
+         * which equals (tcp_off + doff_bytes + ATU_WIRE_BYTES). */
+        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES;
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
             return BPF_OK;
@@ -463,7 +458,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         if (bpf_skb_load_bytes(skb, tcp_off + 12, &cur_doff_byte, 1) < 0)
             return BPF_OK;
         __u32 cur_doff_bytes = ((__u32)(cur_doff_byte >> 4) & 0xF) * 4;
-        __u32 need_final = tcp_off + cur_doff_bytes;
+        __u32 need_final = tcp_off + cur_doff_bytes; /* cur_doff_bytes already includes the inserted bytes */
         if (need_final > (__u32)skb->len) {
             bpf_printk("EGRESS need_final(%u) > skb->len(%u)\n", need_final, skb->len);
             return BPF_OK;
