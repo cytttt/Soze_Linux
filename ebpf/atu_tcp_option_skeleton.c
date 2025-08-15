@@ -453,6 +453,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             }
             tcp_copy[i] = b;
         }
+        /* Debug: inspect T1 snapshot words at 28 and 30 (expected TSecr high/low) */
+        if (doff_bytes >= 32) {
+            __u16 t1w28 = ((__u16)tcp_copy[28] << 8) | tcp_copy[29];
+            __u16 t1w30 = ((__u16)tcp_copy[30] << 8) | tcp_copy[31];
+            bpf_printk("DBG T1 w28=%x w30=%x\n", (__u32)t1w28, (__u32)t1w30);
+        }
         /* Write snapshot to T0 */
         #pragma clang loop unroll(full)
         for (int i = 0; i < 60; i++) {
@@ -461,6 +467,14 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             if (bpf_skb_store_bytes(skb, tcp_t0 + i, &tcp_copy[i], 1, 0)) {
                 bpf_printk("EGRESS store @T0+%d failed\n", i);
                 return BPF_OK;
+            }
+        }
+        /* Debug: read back from T0 to confirm write */
+        if (doff_bytes >= 32) {
+            __u8 rb2[2] = {0,0};
+            if (bpf_skb_load_bytes(skb, tcp_t0 + 28, rb2, 2) == 0) {
+                __u16 t0w28 = ((__u16)rb2[0] << 8) | rb2[1];
+                bpf_printk("DBG T0 w28=%x\n", (__u32)t0w28);
             }
         }
         /* From here on, use tcp_off = T0 as the TCP start. */
