@@ -556,7 +556,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* (b) Sum TCP header (excluding checksum field at 16..17) via stack buffers */
         const __u32 chk_off = offsetof(struct tcphdr, check); /* 16 */
         __u8 head[16] = {0};
-        __u8 tail[44] = {0}; /* max 60-18 = 42, keep 44 for alignment slack */
+        __u8 tail[64] = {0}; /* larger than worst-case 42 to appease verifier */
 
         /* First 16 bytes */
         if (bpf_skb_load_bytes(skb, tcp_off, head, sizeof(head)) < 0) {
@@ -570,7 +570,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         if (doff_new > chk_off + 2)
             tail_len = doff_new - (chk_off + 2);
         if (tail_len) {
-            if (tail_len > sizeof(tail)) tail_len = sizeof(tail);
+            /* Worst-case tail is 60-18 = 42 bytes. Clamp hard so verifier knows. */
+            if (tail_len > 42) tail_len = 42;
             if (bpf_skb_load_bytes(skb, tcp_off + chk_off + 2, tail, tail_len) < 0) {
                 bpf_printk("EGRESS csum load tail failed\n");
                 return BPF_OK;
