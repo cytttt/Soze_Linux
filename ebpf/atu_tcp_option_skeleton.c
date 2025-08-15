@@ -536,14 +536,20 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be0, 2);
         bpf_printk("DBG csum0(be)=%x\n", (__u32)csum_be0);
 
-        /* (a) Pseudo header TCP length changed (tot_len +12) */
+        /* (a) Pseudo header TCP length changed (tot_len +12): apply as diff */
         __u16 old_tcp_len = (__u16)(tot - ihl_bytes);
         __u16 new_tcp_len = (__u16)(new_tot - ihl_bytes);
+        __be16 old_tcp_len_be = bpf_htons(old_tcp_len);
+        __be16 new_tcp_len_be = bpf_htons(new_tcp_len);
         bpf_printk("DBG tl_old=%x tl_new=%x\n", (__u32)old_tcp_len, (__u32)new_tcp_len);
-        bpf_l4_csum_replace(skb,
-                            tcp_off + offsetof(struct tcphdr, check),
-                            bpf_htons(old_tcp_len), bpf_htons(new_tcp_len),
-                            BPF_F_PSEUDO_HDR | BPF_F_MARK_MANGLED_0 | 2);
+        {
+            __u32 add_len = bpf_csum_diff((__be32 *)(void *)&old_tcp_len_be, sizeof(old_tcp_len_be),
+                                          (__be32 *)(void *)&new_tcp_len_be, sizeof(new_tcp_len_be), 0);
+            bpf_l4_csum_replace(skb,
+                                tcp_off + offsetof(struct tcphdr, check),
+                                0, add_len,
+                                BPF_F_MARK_MANGLED_0 | 0);
+        }
 
         /* (b) Data offset nibble changed in the 16-bit word at bytes 12..13 */
         __u16 old_word = ((__u16)doff_byte << 8) | (__u16)flags;       /* network order packed later */
