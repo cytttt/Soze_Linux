@@ -32,6 +32,12 @@
 #include <linux/in.h>
 #include <stdbool.h>
 
+static __always_inline __u32 add16_acc(__u32 acc, __u16 w) {
+    acc += w;
+    acc = (acc & 0xFFFF) + (acc >> 16);
+    return acc;
+}
+
 // ----- Configurable constants -----
 /* ------------------------------------------------------------------------- */
 #define ATU_TCP_OPT_KIND   253        // Experimental/Private Use
@@ -582,31 +588,26 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
             /* Manual 16-bit one's complement sum (network order), no bpf_csum_diff. */
             __u32 sum32 = 0;
-            auto add16 = ^(__u32 acc, __u16 w) {
-                acc += w;
-                acc = (acc & 0xFFFF) + (acc >> 16);
-                return acc;
-            };
 
             /* Pseudo header: src(4) + dst(4) + zero(1)+proto(1) + tcp_len(2) */
             __u8 ph_srcdst[8] = {0};
             if (bpf_skb_load_bytes(skb, ip_off + 12, ph_srcdst, 8) < 0) goto _no_full;
             /* Add src */
             __u16 w = ((__u16)ph_srcdst[0] << 8) | (__u16)ph_srcdst[1];
-            sum32 = add16(sum32, w);
+            sum32 = add16_acc(sum32, w);
             w = ((__u16)ph_srcdst[2] << 8) | (__u16)ph_srcdst[3];
-            sum32 = add16(sum32, w);
+            sum32 = add16_acc(sum32, w);
             /* Add dst */
             w = ((__u16)ph_srcdst[4] << 8) | (__u16)ph_srcdst[5];
-            sum32 = add16(sum32, w);
+            sum32 = add16_acc(sum32, w);
             w = ((__u16)ph_srcdst[6] << 8) | (__u16)ph_srcdst[7];
-            sum32 = add16(sum32, w);
+            sum32 = add16_acc(sum32, w);
             /* zero + proto */
             w = (0u << 8) | (unsigned)IPPROTO_TCP;
-            sum32 = add16(sum32, w);
+            sum32 = add16_acc(sum32, w);
             /* tcp length */
             w = bpf_htons((__u16)(new_tot - ihl_bytes));
-            sum32 = add16(sum32, w);
+            sum32 = add16_acc(sum32, w);
 
             /* TCP header bytes (network order), excluding checksum field 16..17 */
             /* First: bytes 0..15 */
@@ -618,7 +619,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 if (bpf_skb_load_bytes(skb, tcp_off + i, pair, 2) < 0)
                     goto _no_full;
                 w = ((__u16)pair[0] << 8) | (__u16)pair[1];
-                sum32 = add16(sum32, w);
+                sum32 = add16_acc(sum32, w);
             }
             /* Then: bytes 18..(doff_new-1) */
             #pragma clang loop unroll(full)
@@ -629,7 +630,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 if (bpf_skb_load_bytes(skb, tcp_off + j, pair2, 2) < 0)
                     goto _no_full;
                 w = ((__u16)pair2[0] << 8) | (__u16)pair2[1];
-                sum32 = add16(sum32, w);
+                sum32 = add16_acc(sum32, w);
             }
 
             /* finalize: fold thrice then complement */
