@@ -545,32 +545,75 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         {
             __u32 add_len = bpf_csum_diff((__be32 *)(void *)&old_tcp_len_be, sizeof(old_tcp_len_be),
                                           (__be32 *)(void *)&new_tcp_len_be, sizeof(new_tcp_len_be), 0);
-            bpf_l4_csum_replace(skb,
+            int ra = bpf_l4_csum_replace(skb,
                                 tcp_off + offsetof(struct tcphdr, check),
                                 0, add_len,
                                 BPF_F_MARK_MANGLED_0 | 0);
+            bpf_printk("DBG ra=%d\n", ra);
         }
 
         /* (b) Data offset nibble changed in the 16-bit word at bytes 12..13 */
         __u16 old_word = ((__u16)doff_byte << 8) | (__u16)flags;       /* network order packed later */
         __u16 new_word = ((__u16)new_doff_byte << 8) | (__u16)flags;   /* flags unchanged */
         bpf_printk("DBG w12-13 old=%x new=%x\n", (__u32)old_word, (__u32)new_word);
-        bpf_l4_csum_replace(skb,
+        int rb = bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             bpf_htons(old_word), bpf_htons(new_word),
                             BPF_F_MARK_MANGLED_0 | 2);
+        bpf_printk("DBG rb=%d\n", rb);
 
         /* (c) Add the 12B option payload contribution (Kind/Len/8B + NOP/NOP) */
         __u32 add = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
         bpf_printk("DBG opt_csum_add(lo16)=%x\n", (__u32)(add & 0xFFFF));
-        bpf_l4_csum_replace(skb,
+        int rc = bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             0, add,
                             BPF_F_MARK_MANGLED_0 | 0);
+        bpf_printk("DBG rc=%d\n", rc);
 
         __u16 csum_be1 = 0;
         (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be1, 2);
         bpf_printk("DBG csum1(be)=%x\n", (__u32)csum_be1);
+        /* Fallback: full recompute if checksum did not change */
+        if (csum_be1 == csum_be0) {
+            /* Fallback: full recompute over pseudo header + TCP header (no payload). */
+            __u8 ph[12] = {0};
+            if (bpf_skb_load_bytes(skb, ip_off + 12, &ph[0], 4) < 0) goto _no_full;
+            if (bpf_skb_load_bytes(skb, ip_off + 16, &ph[4], 4) < 0) goto _no_full;
+            ph[8]  = 0;
+            ph[9]  = IPPROTO_TCP;
+            __u16 tcp_len = (__u16)(new_tot - ihl_bytes);
+            *(__be16 *)&ph[10] = bpf_htons(tcp_len);
+
+            __u8 tcpbuf[60] = {0};
+            __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;
+            if (doff_new > 60) doff_new = 60;
+            /* Copy TCP header bytes one by one to satisfy verifier. */
+            #pragma clang loop unroll(full)
+            for (int i = 0; i < 60; i++) {
+                if ((__u32)i >= doff_new) break;
+                __u8 b = 0;
+                if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) goto _no_full;
+                tcpbuf[i] = b;
+            }
+            /* Zero checksum field (offset 16..17) */
+            tcpbuf[offsetof(struct tcphdr, check) + 0] = 0;
+            tcpbuf[offsetof(struct tcphdr, check) + 1] = 0;
+
+            __u32 sum = 0;
+            sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
+            sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, sum);
+            /* fold */
+            sum = (sum & 0xFFFF) + (sum >> 16);
+            sum = (sum & 0xFFFF) + (sum >> 16);
+            sum = (sum & 0xFFFF) + (sum >> 16);
+            __u16 sum16 = (~sum) & 0xFFFF;
+            __be16 sum_be = bpf_htons(sum16);
+            if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &sum_be, 2, 0) == 0) {
+                bpf_printk("DBG full_recomp=%x\n", (__u32)sum_be);
+            }
+        }
+_no_full: ;
         /* Log inserted ATU (net order) for sanity */
         __u32 dbg_numer = 0, dbg_denom = 0;
         __builtin_memcpy(&dbg_numer, &opt_buf[2], 4);
