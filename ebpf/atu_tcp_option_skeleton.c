@@ -543,7 +543,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             bpf_htons(old_tcp_len), bpf_htons(new_tcp_len),
-                            BPF_F_PSEUDO_HDR);
+                            BPF_F_PSEUDO_HDR | BPF_F_MARK_MANGLED_0);
 
         /* (b) Data offset nibble changed in the 16-bit word at bytes 12..13 */
         __u16 old_word = ((__u16)doff_byte << 8) | (__u16)flags;       /* network order packed later */
@@ -552,7 +552,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             bpf_htons(old_word), bpf_htons(new_word),
-                            0);
+                            BPF_F_MARK_MANGLED_0);
 
         /* (c) Add the 12B option payload contribution (Kind/Len/8B + NOP/NOP) */
         __u32 add = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
@@ -560,7 +560,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             0, add,
-                            0);
+                            BPF_F_MARK_MANGLED_0);
 
         __u16 csum_be1 = 0;
         (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be1, 2);
