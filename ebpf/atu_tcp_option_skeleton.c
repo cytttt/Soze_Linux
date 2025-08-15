@@ -554,10 +554,18 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
         /* (b) Make a contiguous TCP header copy with checksum field zeroed, then sum once */
         __u8 tcpbuf[60] = {0};
-        __u32 doff_new = doff_bytes + ATU_WIRE_BYTES; /* already clamped above to <=60 */
-        if (bpf_skb_load_bytes(skb, tcp_off, tcpbuf, doff_new) < 0) {
-            bpf_printk("EGRESS csum load tcpbuf failed\n");
-            return BPF_OK;
+        doff_new = doff_bytes + ATU_WIRE_BYTES; /* already clamped above to <=60 */
+        /* Copy TCP header from skb into tcpbuf one byte at a time (verifier-friendly). */
+        #pragma clang loop unroll(full)
+        for (int i = 0; i < 60; i++) {
+            if ((__u32)i >= doff_new)
+                break;
+            __u8 b = 0;
+            if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) {
+                bpf_printk("EGRESS csum load tcpbuf @+%d failed\n", i);
+                return BPF_OK;
+            }
+            tcpbuf[i] = b;
         }
         /* Zero the checksum field (offset 16..17) */
         tcpbuf[offsetof(struct tcphdr, check) + 0] = 0;
