@@ -404,9 +404,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("AFT T0+12=%x %x\n", (__u32)t0b12, (__u32)t0b13);
         bpf_printk("AFT T1+12=%x %x\n", (__u32)t1b12, (__u32)t1b13);
     }
+    /* TCP header start really moved to T1 (= T0 + ATU_WIRE_BYTES) on this path. */
+    tcp_off = tcp_off + ATU_WIRE_BYTES;
+    bpf_printk("AFT SET tcp_off=%u\n", tcp_off);
 
-    /* Re-derive IPv4 IHL and TCP start after adjust_room: skb data/offsets
-     * may have changed. Keep tcp_off = ip_off + ihl_bytes (T0).
+    /* Re-derive IPv4 IHL after adjust_room (layout may change). TCP start has
+     * shifted by ATU_WIRE_BYTES, so set tcp_off = (ip_off + ihl_bytes) + ATU_WIRE_BYTES.
      */
     if (bpf_skb_load_bytes(skb, ip_off + 0, &vihl, 1) < 0)
         return BPF_OK;
@@ -415,13 +418,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     ihl_bytes = (vihl & 0x0F) * 4;
     if (ihl_bytes < 20)
         return BPF_OK;
-    tcp_off = ip_off + ihl_bytes;
-    /* Confirm recomputed T0 (= ip_off + ihl) */
+    tcp_off = ip_off + ihl_bytes + ATU_WIRE_BYTES;
     bpf_printk("AFT RDR tcp_off=%u ihl=%u\n", tcp_off, ihl_bytes);
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
-        /* Use old doff_bytes + ATU_WIRE_BYTES, since we haven't updated doff yet. */
+        /* From new TCP start (T1), ensure we have old_doff + inserted bytes linear. */
         __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES;
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
@@ -489,7 +491,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     /* (2) Now write the option bytes at the end of the old TCP header. */
     {
-        __u32 expected_new_doff = doff_bytes + ATU_WIRE_BYTES; /* grow by exactly what we inserted */
+        __u32 expected_new_doff = doff_bytes + ATU_WIRE_BYTES;
         __u32 need_final = tcp_off + expected_new_doff;
         if (need_final > (__u32)skb->len) {
             bpf_printk("EGRESS need_final(%u) > skb->len(%u)\n", need_final, skb->len);
