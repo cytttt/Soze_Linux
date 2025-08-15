@@ -531,9 +531,15 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     /* Incremental TCP checksum fixes: pseudo-len, doff/flags word, and 12B option data */
     {
+        /* Debug: read original TCP checksum before any incremental updates */
+        __u16 csum_be0 = 0;
+        (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be0, 2);
+        bpf_printk("DBG csum0(be)=%x\n", (__u32)csum_be0);
+
         /* (a) Pseudo header TCP length changed (tot_len +12) */
         __u16 old_tcp_len = (__u16)(tot - ihl_bytes);
         __u16 new_tcp_len = (__u16)(new_tot - ihl_bytes);
+        bpf_printk("DBG tl_old=%x tl_new=%x\n", (__u32)old_tcp_len, (__u32)new_tcp_len);
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             bpf_htons(old_tcp_len), bpf_htons(new_tcp_len),
@@ -542,6 +548,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* (b) Data offset nibble changed in the 16-bit word at bytes 12..13 */
         __u16 old_word = ((__u16)doff_byte << 8) | (__u16)flags;       /* network order packed later */
         __u16 new_word = ((__u16)new_doff_byte << 8) | (__u16)flags;   /* flags unchanged */
+        bpf_printk("DBG w12-13 old=%x new=%x\n", (__u32)old_word, (__u32)new_word);
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             bpf_htons(old_word), bpf_htons(new_word),
@@ -549,10 +556,20 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
         /* (c) Add the 12B option payload contribution (Kind/Len/8B + NOP/NOP) */
         __u32 add = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
+        bpf_printk("DBG opt_csum_add(lo16)=%x\n", (__u32)(add & 0xFFFF));
         bpf_l4_csum_replace(skb,
                             tcp_off + offsetof(struct tcphdr, check),
                             0, add,
                             0);
+
+        __u16 csum_be1 = 0;
+        (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be1, 2);
+        bpf_printk("DBG csum1(be)=%x\n", (__u32)csum_be1);
+        /* Log inserted ATU (net order) for sanity */
+        __u32 dbg_numer = 0, dbg_denom = 0;
+        __builtin_memcpy(&dbg_numer, &opt_buf[2], 4);
+        __builtin_memcpy(&dbg_denom, &opt_buf[6], 4);
+        bpf_printk("DBG opt ATU=%x/%x\n", dbg_numer, dbg_denom);
     }
     bpf_printk("EGRESS wrote option + inc csum fixed\n");
     /* Optional: After fixing TCP checksum (at the end of the function), log final IP total length and TCP doff */
@@ -564,6 +581,11 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             __u32 final_doff = ((__u32)(final_doff_b >> 4) & 0xF) * 4;
             bpf_printk("EGRESS final tot=%u, doff=%u\n", final_tot, final_doff);
         }
+    }
+    {
+        __u16 csum_be2 = 0;
+        (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be2, 2);
+        bpf_printk("DBG csum2(be)=%x\n", (__u32)csum_be2);
     }
     return BPF_OK;
 }
