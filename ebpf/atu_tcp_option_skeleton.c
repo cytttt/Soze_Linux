@@ -657,8 +657,9 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 {
                     __u32 be_word = 0;
                     __builtin_memcpy(&be_word, blk, 4);
-                    bpf_printk("DBG blk@%u=[%x %x %x %x] be=%x\n",
-                               (unsigned)i, (__u32)blk[0], (__u32)blk[1], (__u32)blk[2], (__u32)blk[3], be_word);
+                    bpf_printk("DBG blk@%u be=%x\n", (unsigned)i, be_word);
+                    bpf_printk("DBG blk bytes %x %x %x\n", (__u32)blk[0], (__u32)blk[1], (__u32)blk[2]);
+                    bpf_printk("DBG blk byte3 %x\n", (__u32)blk[3]);
                     sum = bpf_csum_diff(NULL, 0, &be_word, 4, sum);
                     bpf_printk("DBG sum_i=%x\n", sum);
                 }
