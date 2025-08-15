@@ -617,8 +617,9 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             int ra = bpf_l4_csum_replace(skb,
                                 tcp_off + offsetof(struct tcphdr, check),
                                 0, add_len,
-                                BPF_F_MARK_MANGLED_0 | 0);
+                                BPF_F_MARK_MANGLED_0 | BPF_F_PSEUDO_HDR);
             bpf_printk("DBG ra=%d\n", ra);
+            { __u16 dbg; if (!bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &dbg, 2)) bpf_printk("DBG csum_ra=%x\n", (__u32)dbg); }
         }
 
         /* (b) Data offset nibble changed in the 16-bit word at bytes 12..13 */
@@ -630,6 +631,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                             bpf_htons(old_word), bpf_htons(new_word),
                             BPF_F_MARK_MANGLED_0 | 2);
         bpf_printk("DBG rb=%d\n", rb);
+        { __u16 dbg; if (!bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &dbg, 2)) bpf_printk("DBG csum_rb=%x\n", (__u32)dbg); }
 
         /* (c) Add the 12B option payload contribution (Kind/Len/8B + NOP/NOP) */
         __u32 add = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
@@ -639,6 +641,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                             0, add,
                             BPF_F_MARK_MANGLED_0 | 0);
         bpf_printk("DBG rc=%d\n", rc);
+        { __u16 dbg; if (!bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &dbg, 2)) bpf_printk("DBG csum_rc=%x\n", (__u32)dbg); }
 
         __u16 csum_be1 = 0;
         (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be1, 2);
