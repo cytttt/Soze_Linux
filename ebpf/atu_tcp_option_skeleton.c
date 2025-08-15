@@ -529,64 +529,32 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
 
-    /* Skip incremental checksum updates - will do full recompute at the end */
-    bpf_printk("EGRESS wrote option, will recompute full csum\n");
-    /* -------- Final full TCP checksum recompute (robustness) --------
-     * Recompute TCP checksum from scratch over IPv4 pseudo header + TCP header
-     * using a single contiguous buffer for the TCP header with checksum field zeroed.
-     */
+    /* Incremental TCP checksum fixes: pseudo-len, doff/flags word, and 12B option data */
     {
-        __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;  /* final TCP header size */
-        if (doff_new > 60) doff_new = 60;               /* defensive clamp */
-        __u16 tcp_len = (__u16)(new_tot - ihl_bytes);   /* final TCP segment length */
+        /* (a) Pseudo header TCP length changed (tot_len +12) */
+        __u16 old_tcp_len = (__u16)(tot - ihl_bytes);
+        __u16 new_tcp_len = (__u16)(new_tot - ihl_bytes);
+        bpf_l4_csum_replace(skb,
+                            tcp_off + offsetof(struct tcphdr, check),
+                            bpf_htons(old_tcp_len), bpf_htons(new_tcp_len),
+                            BPF_F_PSEUDO_HDR);
 
-        /* (a) IPv4 pseudo header: src(4) dst(4) zero(1) proto(1) tcp_len(2) */
-        __u8 ph[12] = {0};
-        /* src/dst in network order directly into pseudo header */
-        if (bpf_skb_load_bytes(skb, ip_off + 12, &ph[0], 4) < 0) return BPF_OK;
-        if (bpf_skb_load_bytes(skb, ip_off + 16, &ph[4], 4) < 0) return BPF_OK;
-        ph[8]  = 0;
-        ph[9]  = IPPROTO_TCP;
-        *(__be16 *)&ph[10] = bpf_htons(tcp_len);
+        /* (b) Data offset nibble changed in the 16-bit word at bytes 12..13 */
+        __u16 old_word = ((__u16)doff_byte << 8) | (__u16)flags;       /* network order packed later */
+        __u16 new_word = ((__u16)new_doff_byte << 8) | (__u16)flags;   /* flags unchanged */
+        bpf_l4_csum_replace(skb,
+                            tcp_off + offsetof(struct tcphdr, check),
+                            bpf_htons(old_word), bpf_htons(new_word),
+                            0);
 
-        __u32 sum = 0;
-        sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
-
-        /* (b) Make a contiguous TCP header copy with checksum field zeroed, then sum once */
-        __u8 tcpbuf[60] = {0};
-        doff_new = doff_bytes + ATU_WIRE_BYTES; /* already clamped above to <=60 */
-        /* Copy TCP header from skb into tcpbuf one byte at a time (verifier-friendly). */
-        #pragma clang loop unroll(full)
-        for (int i = 0; i < 60; i++) {
-            if ((__u32)i >= doff_new)
-                break;
-            __u8 b = 0;
-            if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) {
-                bpf_printk("EGRESS csum load tcpbuf @+%d failed\n", i);
-                return BPF_OK;
-            }
-            tcpbuf[i] = b;
-        }
-        /* Zero the checksum field (offset 16..17) */
-        tcpbuf[offsetof(struct tcphdr, check) + 0] = 0;
-        tcpbuf[offsetof(struct tcphdr, check) + 1] = 0;
-
-        sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, sum);
-
-        /* (c) Fold and complement */
-        sum = (sum & 0xFFFF) + (sum >> 16);
-        sum = (sum & 0xFFFF) + (sum >> 16);
-        sum = (sum & 0xFFFF) + (sum >> 16);
-        __u16 sum16 = (~sum) & 0xFFFF;
-        __be16 sum_be = bpf_htons(sum16);
-
-        bpf_printk("EGRESS csum16=%x\n", (__u32)sum16);
-        if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &sum_be, sizeof(sum_be), 0)) {
-            bpf_printk("EGRESS write full csum failed\n");
-            return BPF_OK;
-        }
-        bpf_printk("EGRESS full TCP csum recomputed\n");
+        /* (c) Add the 12B option payload contribution (Kind/Len/8B + NOP/NOP) */
+        __u32 add = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
+        bpf_l4_csum_replace(skb,
+                            tcp_off + offsetof(struct tcphdr, check),
+                            0, add,
+                            0);
     }
+    bpf_printk("EGRESS wrote option + inc csum fixed\n");
     /* Optional: After fixing TCP checksum (at the end of the function), log final IP total length and TCP doff */
     {
         __u8 final_doff_b = 0; __u16 final_tot_be2 = 0;
