@@ -40,25 +40,11 @@ bash setup.bash
 
 #### setup
 ```
+# get into recv shell
 sudo -s
 ip netns exec recv bash
 
-umount /sys/fs/bpf 2>/dev/null || true
-mkdir -p /sys/fs/bpf && mount -t bpf bpf /sys/fs/bpf
-mkdir -p /sys/fs/bpf/tc /sys/fs/bpf/atu_rx 
-
-bpftool prog loadall ebpf/atu_rx.o /sys/fs/bpf/atu_rx
-
-MID=$(bpftool map show | awk '/ name rx_flow_atu /{print $1; exit}' | tr -d :)
-bpftool map pin id "$MID" /sys/fs/bpf/tc/rx_flow_atu
-
-ethtool -K veth-r tso off gso off gro off lro off || true
-tc qdisc del dev veth-r clsact 2>/dev/null || true
-tc qdisc add dev veth-r clsact 
-tc filter add dev veth-r ingress pref 10 bpf da pinned /sys/fs/bpf/atu_rx/classifier_rx_ingress_cache_atu
-tc filter add dev veth-r egress  pref 10 bpf da pinned /sys/fs/bpf/atu_rx/classifier_rx_egress_add_ack_opt
-tc -s filter show dev veth-r ingress
-tc -s filter show dev veth-r egress
+bash local-setup-rx.bash
 ```
 #### test
 ```
@@ -71,16 +57,35 @@ bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 
 #### setup
 ```
-bash setup-tx.bash
+bash local-setup-tx.bash
 ```
 #### test
 ```
-ip netns exec send bash -lc 'dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000'
+# ignore cksum
+ip netns exec send bash -lc '
+    ethtool -K veth-s rx off tx off tso off gso off gro off lro off
+    dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000
+'
 ```
 
 ### Eval
 ```
-sudo ip netns exec send tcpdump -i veth-s -vvv -s 0 -n 'tcp[tcpflags] & tcp-ack != 0' -c 5
+# tcp dump
+ip netns exec recv bash -lc '
+    ethtool -K veth-r rx off tx off tso off gso off gro off lro off
+    tcpdump -i veth-r -Q out -n -vvv -s0 "src 10.0.0.1" -c 5
+'
+
+ip netns exec recv tcpdump -i veth-r -Q out -n -vvv -s0   'src 10.0.0.1' -c 5
+
+# check hex option
+ip netns exec recv tcpdump -vvv -XX -s0 'src 10.0.0.1 and tcp' 
 
 sudo cat /sys/kernel/debug/tracing/trace_pipe
+
+# check recv side map
+bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
+
+# check sender side map
+bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ```
