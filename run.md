@@ -87,3 +87,7 @@ bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 # check sender side map
 bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ```
+
+## issues
+
+- I cannot adjust cksum at egress since the TSecr in skb will later be modified.
