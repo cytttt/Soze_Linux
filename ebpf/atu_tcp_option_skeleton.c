@@ -591,17 +591,16 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
         csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, csum);
 
-        /* (d) Fold to 16-bit and complement */
+        /* (d) Fold to 16-bit and complement (repeat until no carry) */
         csum = (csum & 0xFFFF) + (csum >> 16);
         csum = (csum & 0xFFFF) + (csum >> 16);
-        __u16 csum16 = ~csum;
-        // __be16 csum_be = bpf_htons(csum16);
+        csum = (csum & 0xFFFF) + (csum >> 16);
+        __u16 csum16 = (~csum) & 0xFFFF;
+        __be16 csum_be = bpf_htons(csum16);
 
-        /* (e) Write back the final checksum */
-        // if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check),
-        //                         &csum_be, sizeof(csum_be), 0)) {
+        /* (e) Write back the final checksum (network order) */
         if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check),
-                                &csum16, sizeof(csum16), 0)) {
+                                &csum_be, sizeof(csum_be), 0)) {
             bpf_printk("EGRESS write full csum failed\n");
             return BPF_OK;
         }
