@@ -577,19 +577,39 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* Fallback: full recompute if checksum did not change */
         if (csum_be1 == csum_be0) {
             /* Fallback: full recompute over pseudo header + TCP header (no payload). */
-            __u8 ph[12] = {0};
-            if (bpf_skb_load_bytes(skb, ip_off + 12, &ph[0], 4) < 0) goto _no_full;
-            if (bpf_skb_load_bytes(skb, ip_off + 16, &ph[4], 4) < 0) goto _no_full;
-            ph[8]  = 0;
-            ph[9]  = IPPROTO_TCP;
-            __u16 tcp_len = (__u16)(new_tot - ihl_bytes);
-            *(__be16 *)&ph[10] = bpf_htons(tcp_len);
-
             __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;
             if (doff_new > 60) doff_new = 60;
-            __u32 sum = 0;
-            sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
-            /* First segment: bytes 0..15 (inclusive). Read exact network-order bytes */
+
+            /* Manual 16-bit one's complement sum (network order), no bpf_csum_diff. */
+            __u32 sum32 = 0;
+            auto add16 = ^(__u32 acc, __u16 w) {
+                acc += w;
+                acc = (acc & 0xFFFF) + (acc >> 16);
+                return acc;
+            };
+
+            /* Pseudo header: src(4) + dst(4) + zero(1)+proto(1) + tcp_len(2) */
+            __u8 ph_srcdst[8] = {0};
+            if (bpf_skb_load_bytes(skb, ip_off + 12, ph_srcdst, 8) < 0) goto _no_full;
+            /* Add src */
+            __u16 w = ((__u16)ph_srcdst[0] << 8) | (__u16)ph_srcdst[1];
+            sum32 = add16(sum32, w);
+            w = ((__u16)ph_srcdst[2] << 8) | (__u16)ph_srcdst[3];
+            sum32 = add16(sum32, w);
+            /* Add dst */
+            w = ((__u16)ph_srcdst[4] << 8) | (__u16)ph_srcdst[5];
+            sum32 = add16(sum32, w);
+            w = ((__u16)ph_srcdst[6] << 8) | (__u16)ph_srcdst[7];
+            sum32 = add16(sum32, w);
+            /* zero + proto */
+            w = (0u << 8) | (unsigned)IPPROTO_TCP;
+            sum32 = add16(sum32, w);
+            /* tcp length */
+            w = bpf_htons((__u16)(new_tot - ihl_bytes));
+            sum32 = add16(sum32, w);
+
+            /* TCP header bytes (network order), excluding checksum field 16..17 */
+            /* First: bytes 0..15 */
             #pragma clang loop unroll(full)
             for (int i = 0; i < 16; i += 2) {
                 if ((__u32)(i + 2) > doff_new)
@@ -597,9 +617,10 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 __u8 pair[2] = {0, 0};
                 if (bpf_skb_load_bytes(skb, tcp_off + i, pair, 2) < 0)
                     goto _no_full;
-                sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)pair, 2, sum);
+                w = ((__u16)pair[0] << 8) | (__u16)pair[1];
+                sum32 = add16(sum32, w);
             }
-            /* Second segment: bytes 18..(doff_new-1), skip checksum field 16..17 */
+            /* Then: bytes 18..(doff_new-1) */
             #pragma clang loop unroll(full)
             for (int j = 18; j < 60; j += 2) {
                 if ((__u32)(j + 2) > doff_new)
@@ -607,10 +628,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 __u8 pair2[2] = {0, 0};
                 if (bpf_skb_load_bytes(skb, tcp_off + j, pair2, 2) < 0)
                     goto _no_full;
-                sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)pair2, 2, sum);
+                w = ((__u16)pair2[0] << 8) | (__u16)pair2[1];
+                sum32 = add16(sum32, w);
             }
-            /* fold */
-            sum = (sum & 0xFFFF) + (sum >> 16);
+
+            /* finalize: fold thrice then complement */
+            __u32 sum = (sum32 & 0xFFFF) + (sum32 >> 16);
             sum = (sum & 0xFFFF) + (sum >> 16);
             sum = (sum & 0xFFFF) + (sum >> 16);
             __u16 sum16 = (~sum) & 0xFFFF;
