@@ -423,6 +423,16 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             return BPF_OK;
         }
     }
+
+    __u16 w28 = 0, w30 = 0;
+
+    // ========== BEF：adjust_room 之前，T0 =============
+    if (bpf_skb_load_bytes(skb, tcp_off + 28, &w28, 2) == 0 &&
+        bpf_skb_load_bytes(skb, tcp_off + 30, &w30, 2) == 0) {
+        bpf_printk("BEF w28=%x\n", (__u32)w28);
+        bpf_printk("BEF w30=%x\n", (__u32)w30);
+    }
+
     int adj_ret = bpf_skb_adjust_room(
         skb, ATU_WIRE_BYTES,
         BPF_ADJ_ROOM_NET,
@@ -433,6 +443,13 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
+
+    // ========== AFT1：adjust_room 之後，T1 =============
+    if (bpf_skb_load_bytes(skb, tcp_t1 + 28, &w28, 2) == 0 &&
+        bpf_skb_load_bytes(skb, tcp_t1 + 30, &w30, 2) == 0) {
+        bpf_printk("AFT1 w28=%x\n", (__u32)w28);
+        bpf_printk("AFT1 w30=%x\n", (__u32)w30);
+    }
     /* ==== DEBUG AFTER ADJUST: probe both T0 and T1 (=T0+12) ==== */
     {
         __u32 T0 = tcp_off;
@@ -521,7 +538,12 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* From here on, use tcp_off = T0 as the TCP start. */
         tcp_off = tcp_t0;
     }
-
+    // ========== AFT0：搬移完成後，T0 =============
+    if (bpf_skb_load_bytes(skb, tcp_off + 28, &w28, 2) == 0 &&
+        bpf_skb_load_bytes(skb, tcp_off + 30, &w30, 2) == 0) {
+        bpf_printk("AFT0 w28=%x\n", (__u32)w28);
+        bpf_printk("AFT0 w30=%x\n", (__u32)w30);
+    }
     /* ----------------------- L3: IPv4 total length + checksum ----------------------- */
     __u16 new_tot = tot + ATU_WIRE_BYTES;
     __be16 new_tot_be = bpf_htons(new_tot);
