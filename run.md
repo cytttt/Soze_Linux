@@ -73,13 +73,11 @@ ip netns exec send bash -lc '
 # tcp dump
 ip netns exec recv bash -lc '
     ethtool -K veth-r rx off tx off tso off gso off gro off lro off
-    tcpdump -i veth-r -Q out -n -vvv -s0 "src 10.0.0.1" -c 5
+    tcpdump -i veth-r -Q out -n -vvv -s0 -XX "src 10.0.0.1" -c 5
 '
 
-ip netns exec recv tcpdump -i veth-r -Q out -n -vvv -s0   'src 10.0.0.1' -c 5
-
 # check hex option
-ip netns exec recv tcpdump -vvv -XX -s0 'src 10.0.0.1 and tcp' 
+ip netns exec recv tcpdump -vvv -s0 -XX 'src 10.0.0.1 and tcp' 
 
 sudo cat /sys/kernel/debug/tracing/trace_pipe
 
