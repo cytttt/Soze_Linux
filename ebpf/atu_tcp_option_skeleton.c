@@ -379,7 +379,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     int adj_ret = bpf_skb_adjust_room(
         skb, ATU_WIRE_BYTES,
         BPF_ADJ_ROOM_NET,
-        BPF_F_ADJ_ROOM_FIXED_GSO | BPF_F_ADJ_ROOM_NO_CSUM_RESET);
+        BPF_F_ADJ_ROOM_FIXED_GSO);
+        // BPF_F_ADJ_ROOM_FIXED_GSO | BPF_F_ADJ_ROOM_NO_CSUM_RESET);
     if (adj_ret) {
         bpf_printk("EGRESS adjust_room failed: %d\n", adj_ret);
         return BPF_OK;
@@ -505,6 +506,16 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 return BPF_OK;
             }
         }
+    }
+    /* (1b) Fix TCP checksum for the changed 16-bit word at bytes 12..13
+     * (high nibble of byte 12 is data offset; byte 13 are flags). */
+    {
+        __u16 old_word = ((__u16)doff_byte << 8) | (__u16)flags;       /* network byte order fields packed */
+        __u16 new_word = ((__u16)new_doff_byte << 8) | (__u16)flags;   /* flags unchanged */
+        bpf_l4_csum_replace(skb,
+                            tcp_off + offsetof(struct tcphdr, check),
+                            bpf_htons(old_word), bpf_htons(new_word),
+                            0);
     }
 
     /* (2) Now write the option bytes at the end of the old TCP header. */
