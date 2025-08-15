@@ -351,6 +351,18 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (opt_room < ATU_WIRE_BYTES)
         return BPF_OK;
 
+    /* Ensure the old TCP header is linear before adjustment. */
+    {
+        __u32 need = tcp_off + doff_bytes; /* end of current TCP header */
+        if (need > (__u32)skb->len) {
+            bpf_printk("EGRESS need(%u) > skb->len(%u) before adjust\n", need, skb->len);
+            return BPF_OK;
+        }
+        if (bpf_skb_pull_data(skb, need)) {
+            bpf_printk("EGRESS pull_data fail before adjust @%u\n", need);
+            return BPF_OK;
+        }
+    }
     int adj_ret = bpf_skb_adjust_room(
         skb, ATU_WIRE_BYTES,
         BPF_ADJ_ROOM_NET,
@@ -367,17 +379,23 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
      */
     tcp_off += ATU_WIRE_BYTES;
 
-    /* Re-fetch TCP doff after adjust (defensive) */
+    /* Ensure linear/writable up to end of (old header + inserted option). */
+    {
+        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES;
+        if (need > (__u32)skb->len) {
+            bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
+            return BPF_OK;
+        }
+        if (bpf_skb_pull_data(skb, need)) {
+            bpf_printk("EGRESS pull_data fail after adjust @%u\n", need);
+            return BPF_OK;
+        }
+    }
+
+    /* Re-read doff after adjust, in case GSO/headers were modified. */
     if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
         return BPF_OK;
     doff_bytes = ((__u32)(doff_byte >> 4) & 0xF) * 4;
-
-    /* Ensure linear/writable up to new TCP header end (old + option). */
-    if (bpf_skb_pull_data(skb, tcp_off + doff_bytes + ATU_WIRE_BYTES)) {
-        bpf_printk("EGRESS pull_data fail @%u\n",
-                   (unsigned)(tcp_off + doff_bytes + ATU_WIRE_BYTES));
-        return BPF_OK;
-    }
 
     /* ----------------------- L3: IPv4 total length + checksum ----------------------- */
     __u16 new_tot = tot + ATU_WIRE_BYTES;
