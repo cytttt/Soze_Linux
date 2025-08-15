@@ -597,6 +597,74 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("EGRESS write opt failed\n");
         return BPF_OK;
     }
+    /* L4 Checksum (verifier-friendly: only constant-sized chunks) */
+    {
+        /* new TCP header length in bytes */
+        __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;
+
+        /* Zero TCP checksum field in-packet first */
+        __u16 zero = 0;
+        (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &zero, 2, 0);
+
+        /* Build IPv4 pseudo-header (12 bytes, network order bytes copied verbatim) */
+        __u8 ph[12] = {0};
+        if (bpf_skb_load_bytes(skb, ip_off + 12, &ph[0], 4) < 0) goto _skip_l4fix; /* src */
+        if (bpf_skb_load_bytes(skb, ip_off + 16, &ph[4], 4) < 0) goto _skip_l4fix; /* dst */
+        ph[8]  = 0;
+        ph[9]  = IPPROTO_TCP;
+        {
+            __u16 tcp_len = (__u16)(new_tot - ihl_bytes);
+            *(__be16 *)&ph[10] = bpf_htons(tcp_len);
+        }
+
+        /* Incremental checksum build: pseudo-header first */
+        __u32 sum = 0;
+        sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), sum);
+
+        /* Then the TCP header (now enlarged). Feed fixed 4-byte words to csum_diff(). */
+        {
+            __u32 i = 0;
+            /* process full 4-byte words */
+            #pragma clang loop unroll(full)
+            for (int step = 0; step < 15; step++) { /* 15 * 4 = 60 max header */
+                if (i + 4 > doff_new) break;
+                __u32 w = 0;
+                if (bpf_skb_load_bytes(skb, tcp_off + i, &w, 4) < 0) goto _skip_l4fix;
+                /* ensure checksum field (bytes 16..17) are treated as zero even if store failed earlier */
+                if (i == 16) w &= bpf_htonl(0xFFFF0000u); /* zero low 16 bits in network layout */
+                sum = bpf_csum_diff(NULL, 0, &w, 4, sum);
+                i += 4;
+            }
+            /* handle tail (1..3 bytes) by zero-padding to 4 bytes */
+            if (i < doff_new) {
+                __u8 tail4[4] = {0,0,0,0};
+                __u32 rem = doff_new - i; /* 1..3 */
+                #pragma clang loop unroll(full)
+                for (int k = 0; k < 4; k++) {
+                    if ((__u32)k < rem) {
+                        if (bpf_skb_load_bytes(skb, tcp_off + i + k, &tail4[k], 1) < 0) goto _skip_l4fix;
+                    }
+                }
+                /* if the checksum field crosses into the tail, make sure its two bytes are zero */
+                if (i <= 16 && 16 < i + rem) {
+                    int off_in_tail = 16 - (int)i; /* 0..2 */
+                    if (off_in_tail >= 0 && off_in_tail < 4) tail4[off_in_tail] = 0;
+                    if (off_in_tail + 1 >= 0 && off_in_tail + 1 < 4) tail4[off_in_tail + 1] = 0;
+                }
+                __u32 last = 0;
+                __builtin_memcpy(&last, tail4, 4);
+                sum = bpf_csum_diff(NULL, 0, &last, 4, sum);
+            }
+        }
+
+        /* Write back checksum using PSEUDO_HDR mode (sum already includes pseudo header) */
+        (void)bpf_l4_csum_replace(skb,
+            tcp_off + offsetof(struct tcphdr, check),
+            0, sum,
+            BPF_F_MARK_MANGLED_0 | BPF_F_PSEUDO_HDR);
+    _skip_l4fix: ;
+    }
+
     bpf_printk("EGRESS wrote option (no L4 csum update)\n");
     /* Optional: After fixing TCP checksum (at the end of the function), log final IP total length and TCP doff */
     {
