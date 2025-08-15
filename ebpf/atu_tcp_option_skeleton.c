@@ -533,13 +533,16 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     /* Skip incremental checksum updates - will do full recompute at the end */
     bpf_printk("EGRESS wrote option, will recompute full csum\n");
     /* -------- Final full TCP checksum recompute (robustness) --------
-     * Recompute checksum from scratch over pseudo header + TCP header (no payload).
-     * This avoids any incremental-miss issues and silences tcpdump "incorrect". */
+     * Recompute TCP checksum from scratch over IPv4 pseudo header + TCP header
+     * directly from the skb (no payload for pure ACK). We avoid copying the TCP
+     * header to stack; instead, we sum two ranges around the checksum field.
+     */
     {
-        __u16 tcp_len = (new_tot - ihl_bytes);         /* bytes in TCP segment */
-        __u32 csum = 0;
+        __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;  /* final TCP header size */
+        if (doff_new > 60) doff_new = 60;               /* defensive clamp */
+        __u16 tcp_len = (__u16)(new_tot - ihl_bytes);   /* final TCP segment length */
 
-        /* (a) Build IPv4 pseudo header on stack: src(4) dst(4) zero(1) proto(1) len(2) */
+        /* (a) IPv4 pseudo header: src(4) dst(4) zero(1) proto(1) tcp_len(2) */
         __u8 ph[12] = {0};
         __u32 saddr = 0, daddr = 0; __u8 proto_u8 = IPPROTO_TCP;
         (void)bpf_skb_load_bytes(skb, ip_off + 12, &saddr, 4);
@@ -548,41 +551,32 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         __builtin_memcpy(&ph[4],  &daddr, 4);
         ph[8]  = 0;
         ph[9]  = proto_u8;
-        /* Use NEW TCP length (after adding option) */
-        __u32 new_tcp_len = new_tot - ihl_bytes;
-        *(__be16 *)&ph[10] = bpf_htons(new_tcp_len);
+        *(__be16 *)&ph[10] = bpf_htons(tcp_len);
 
-        /* (b) Read TCP header (doff_new) into stack buffer and zero checksum field */
-        __u8 tcpbuf[60] = {0};
-        __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;  /* already enforced earlier */
-        if (doff_new > 60) doff_new = 60;              /* clamp defensively */
-        if (bpf_skb_load_bytes(skb, tcp_off, tcpbuf, doff_new) < 0)
-            return BPF_OK;
-        /* checksum field at offset offsetof(struct tcphdr, check) */
-        tcpbuf[offsetof(struct tcphdr, check) + 0] = 0;
-        tcpbuf[offsetof(struct tcphdr, check) + 1] = 0;
-        
-        bpf_printk("EGRESS csum: tcp_len=%u, doff_new=%u", new_tcp_len, doff_new);
+        __u32 sum = 0;
+        sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
 
-        /* (c) Compute csum over pseudo header then TCP header */
-        csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
-        __u32 ph_csum = csum;
-        csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, csum);
-        
-        bpf_printk("EGRESS csum: ph_csum=0x%x, total_csum=0x%x", ph_csum, csum);
+        /* (b) TCP header over skb (exclude checksum field at offset 16..17) */
+        const __u32 chk_off = offsetof(struct tcphdr, check); /* 16 */
+        /* Sum from tcp_off .. tcp_off+chk_off (first 16 bytes) */
+        if (chk_off)
+            sum = bpf_csum_diff(NULL, 0, (__be32 *)(long)(tcp_off), chk_off, sum);
+        /* Sum from tcp_off+chk_off+2 .. tcp_off+doff_new (rest of header) */
+        __u32 tail_off = tcp_off + chk_off + 2;
+        __u32 tail_len = 0;
+        if (doff_new > chk_off + 2)
+            tail_len = doff_new - (chk_off + 2);
+        if (tail_len)
+            sum = bpf_csum_diff(NULL, 0, (__be32 *)(long)(tail_off), tail_len, sum);
 
-        /* (d) Fold to 16-bit and complement (repeat until no carry) */
-        csum = (csum & 0xFFFF) + (csum >> 16);
-        csum = (csum & 0xFFFF) + (csum >> 16);
-        csum = (csum & 0xFFFF) + (csum >> 16);
-        __u16 csum16 = (~csum) & 0xFFFF;
-        __be16 csum_be = bpf_htons(csum16);
-        
-        bpf_printk("EGRESS final csum16=0x%x, csum_be=0x%x", csum16, bpf_ntohs(csum_be));
+        /* (c) Fold and complement */
+        sum = (sum & 0xFFFF) + (sum >> 16);
+        sum = (sum & 0xFFFF) + (sum >> 16);
+        sum = (sum & 0xFFFF) + (sum >> 16);
+        __u16 sum16 = (~sum) & 0xFFFF; /* network order write below */
+        __be16 sum_be = bpf_htons(sum16);
 
-        /* (e) Write back the final checksum (network order) */
-        if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check),
-                                &csum_be, sizeof(csum_be), 0)) {
+        if (bpf_skb_store_bytes(skb, tcp_off + chk_off, &sum_be, sizeof(sum_be), 0)) {
             bpf_printk("EGRESS write full csum failed\n");
             return BPF_OK;
         }
