@@ -351,6 +351,19 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (opt_room < ATU_WIRE_BYTES)
         return BPF_OK;
 
+
+    /* ==== DEBUG BEFORE ADJUST (T0 = ip_off + ihl) ==== */
+    {
+        __u8 b12 = 0, b13 = 0;
+        __u32 T0 = tcp_off; /* ip_off + ihl_bytes */
+        if (T0 + 14 <= (__u32)skb->len) {
+            (void)bpf_skb_load_bytes(skb, T0 + 12, &b12, 1); /* doff/NS */
+            (void)bpf_skb_load_bytes(skb, T0 + 13, &b13, 1); /* flags    */
+        }
+        bpf_printk("BEF T0=%u ihl=%u\n", T0, ihl_bytes);
+        bpf_printk("BEF doff=%u len=%u\n", doff_bytes, (__u32)skb->len);
+        bpf_printk("BEF T0+12=%x %x\n", (__u32)b12, (__u32)b13);
+    }    
     /* Ensure the old TCP header is linear before adjustment. */
     {
         __u32 need = tcp_off + doff_bytes; /* end of current TCP header */
@@ -372,6 +385,25 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
+    /* ==== DEBUG AFTER ADJUST: probe both T0 and T1 (=T0+12) ==== */
+    {
+        __u32 T0 = tcp_off;
+        __u32 T1 = tcp_off + ATU_WIRE_BYTES;
+        __u8 t0b12 = 0, t0b13 = 0, t1b12 = 0, t1b13 = 0;
+
+        if (T0 + 14 <= (__u32)skb->len) {
+            (void)bpf_skb_load_bytes(skb, T0 + 12, &t0b12, 1);
+            (void)bpf_skb_load_bytes(skb, T0 + 13, &t0b13, 1);
+        }
+        if (T1 + 14 <= (__u32)skb->len) {
+            (void)bpf_skb_load_bytes(skb, T1 + 12, &t1b12, 1);
+            (void)bpf_skb_load_bytes(skb, T1 + 13, &t1b13, 1);
+        }
+
+        bpf_printk("AFT T0=%u T1=%u\n", T0, T1);
+        bpf_printk("AFT T0+12=%x %x\n", (__u32)t0b12, (__u32)t0b13);
+        bpf_printk("AFT T1+12=%x %x\n", (__u32)t1b12, (__u32)t1b13);
+    }
 
     /* Re-derive IPv4 IHL and TCP start after adjust_room: skb data/offsets
      * may have changed. Keep tcp_off = ip_off + ihl_bytes (T0).
@@ -384,6 +416,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (ihl_bytes < 20)
         return BPF_OK;
     tcp_off = ip_off + ihl_bytes;
+    /* Confirm recomputed T0 (= ip_off + ihl) */
+    bpf_printk("AFT RDR tcp_off=%u ihl=%u\n", tcp_off, ihl_bytes);
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
