@@ -429,18 +429,25 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     }
 
     /* Move the TCP header bytes back to T0 so the 12-byte gap ends up at the
-     * end of the TCP header (between header and payload).
+     * end of the TCP header (between header and payload). Use constant-size
+     * ops to satisfy the verifier.
      */
     {
         if (doff_bytes > 60) return BPF_OK; /* defensive: TCP header max 60B */
-        __u8 hdr_buf[60];
-        if (bpf_skb_load_bytes(skb, tcp_t1, hdr_buf, doff_bytes) < 0) {
-            bpf_printk("EGRESS load hdr @T1 failed\n");
-            return BPF_OK;
-        }
-        if (bpf_skb_store_bytes(skb, tcp_t0, hdr_buf, doff_bytes, 0)) {
-            bpf_printk("EGRESS store hdr @T0 failed\n");
-            return BPF_OK;
+        /* Copy header from T1 -> T0 one byte at a time (verifier-friendly). */
+        #pragma clang loop unroll(full)
+        for (int i = 0; i < 60; i++) {
+            if ((__u32)i >= doff_bytes)
+                break;
+            __u8 b = 0;
+            if (bpf_skb_load_bytes(skb, tcp_t1 + i, &b, 1) < 0) {
+                bpf_printk("EGRESS load @T1+%d failed\n", i);
+                return BPF_OK;
+            }
+            if (bpf_skb_store_bytes(skb, tcp_t0 + i, &b, 1, 0)) {
+                bpf_printk("EGRESS store @T0+%d failed\n", i);
+                return BPF_OK;
+            }
         }
         /* From here on, use tcp_off = T0 as the TCP start. */
         tcp_off = tcp_t0;
