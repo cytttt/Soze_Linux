@@ -641,6 +641,46 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             __be16 sum_be = bpf_htons(sum16);
             if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &sum_be, 2, 0) == 0) {
                 bpf_printk("DBG full_recomp=%x\n", (__u32)sum_be);
+                /* Secondary cross-check: if new TCP header length is exactly 44 bytes,
+                 * rebuild a contiguous tcpbuf[44] (with checksum field zeroed) and
+                 * compute checksum via bpf_csum_diff for comparison. */
+                if (doff_new == 44) {
+                    __u8 tcpbuf44[44] = {0};
+                    /* Copy bytes 0..15 */
+                    #pragma clang loop unroll(full)
+                    for (int i = 0; i < 16; i++) {
+                        __u8 b = 0;
+                        if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) goto _no_full;
+                        tcpbuf44[i] = b;
+                    }
+                    /* Zero checksum field 16..17 */
+                    tcpbuf44[16] = 0; tcpbuf44[17] = 0;
+                    /* Copy bytes 18..43 */
+                    #pragma clang loop unroll(full)
+                    for (int j = 18; j < 44; j++) {
+                        __u8 b2 = 0;
+                        if (bpf_skb_load_bytes(skb, tcp_off + j, &b2, 1) < 0) goto _no_full;
+                        tcpbuf44[j] = b2;
+                    }
+                    /* pseudo header */
+                    __u8 ph2[12] = {0};
+                    if (bpf_skb_load_bytes(skb, ip_off + 12, &ph2[0], 4) < 0) goto _no_full;
+                    if (bpf_skb_load_bytes(skb, ip_off + 16, &ph2[4], 4) < 0) goto _no_full;
+                    ph2[8]  = 0; ph2[9] = IPPROTO_TCP;
+                    __u16 tcp_len2 = (__u16)(new_tot - ihl_bytes);
+                    *(__be16 *)&ph2[10] = bpf_htons(tcp_len2);
+
+                    __u32 sumx = 0;
+                    sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph2, sizeof(ph2), 0);
+                    sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf44, 44, sumx);
+                    /* fold */
+                    sumx = (sumx & 0xFFFF) + (sumx >> 16);
+                    sumx = (sumx & 0xFFFF) + (sumx >> 16);
+                    sumx = (sumx & 0xFFFF) + (sumx >> 16);
+                    __u16 sum16x = (~sumx) & 0xFFFF;
+                    __be16 be_sumx = bpf_htons(sum16x);
+                    bpf_printk("DBG full_recomp44=%x\n", (__u32)be_sumx);
+                }
             }
         }
 _no_full: ;
