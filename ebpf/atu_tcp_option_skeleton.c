@@ -424,7 +424,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
         /* From new TCP start (T1), ensure we have old_doff + inserted bytes linear. */
-        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES;
+        __u32 need = tcp_off + doff_bytes;
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
             return BPF_OK;
