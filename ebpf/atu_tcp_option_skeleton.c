@@ -614,6 +614,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         {
             __u32 add_len = bpf_csum_diff((__be32 *)(void *)&old_tcp_len_be, sizeof(old_tcp_len_be),
                                           (__be32 *)(void *)&new_tcp_len_be, sizeof(new_tcp_len_be), 0);
+            bpf_printk("DBG ra diff%x\n", (__u32)(add_len & 0xFFFF));
             int ra = bpf_l4_csum_replace(skb,
                                 tcp_off + offsetof(struct tcphdr, check),
                                 0, add_len,
@@ -633,13 +634,37 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("DBG rb=%d\n", rb);
         { __u16 dbg; if (!bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &dbg, 2)) bpf_printk("DBG csum_rb=%x\n", (__u32)dbg); }
 
-        /* (c) Add the 12B option payload contribution (Kind/Len/8B + NOP/NOP) */
-        __u32 add = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
-        bpf_printk("DBG opt_csum_add(lo16)=%x\n", (__u32)(add & 0xFFFF));
+        /* (c) Add the 12B option payload contribution (Kind/Len/8B + NOP/NOP)
+         * Do it in 16-bit/32-bit chunks so the endianness of the debug print is clear.
+         */
+        __u32 add = 0;
+        __u32 add_step;
+        /* 2B: Kind/Len */
+        add_step = bpf_csum_diff(NULL, 0, (__be32 *)(void *)&opt_buf[0], 2, 0);
+        bpf_printk("DBG opt_sum kl=%x\n", (add_step & 0xFFFF));
+        add = bpf_csum_diff(NULL, 0, NULL, 0, add_step);
+        /* 4B: numer high+low */
+        add_step = bpf_csum_diff(NULL, 0, (__be32 *)(void *)&opt_buf[2], 4, 0);
+        bpf_printk("DBG opt_sum numer=%x\n", (add_step & 0xFFFF));
+        add = bpf_csum_diff(NULL, 0, NULL, 0, add);
+        add = bpf_csum_diff(NULL, 0, NULL, 0, add_step);
+        /* 4B: denom high+low */
+        add_step = bpf_csum_diff(NULL, 0, (__be32 *)(void *)&opt_buf[6], 4, 0);
+        bpf_printk("DBG opt_sum denom=%x\n", (add_step & 0xFFFF));
+        add = bpf_csum_diff(NULL, 0, NULL, 0, add);
+        add = bpf_csum_diff(NULL, 0, NULL, 0, add_step);
+        /* 2B: NOP/NOP */
+        add_step = bpf_csum_diff(NULL, 0, (__be32 *)(void *)&opt_buf[10], 2, 0);
+        bpf_printk("DBG opt_sum pad=%x\n", (add_step & 0xFFFF));
+        add = bpf_csum_diff(NULL, 0, NULL, 0, add);
+        add = bpf_csum_diff(NULL, 0, NULL, 0, add_step);
+
+        bpf_printk("DBG opt_csum_add(lo16)=%x\n", (add & 0xFFFF));
+        /* Apply the accumulated diff; size bits = 0 means diff mode. */
         int rc = bpf_l4_csum_replace(skb,
-                            tcp_off + offsetof(struct tcphdr, check),
-                            0, add,
-                            BPF_F_MARK_MANGLED_0 | 0);
+                                     tcp_off + offsetof(struct tcphdr, check),
+                                     0, add,
+                                     BPF_F_MARK_MANGLED_0);
         bpf_printk("DBG rc=%d\n", rc);
         { __u16 dbg; if (!bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &dbg, 2)) bpf_printk("DBG csum_rc=%x\n", (__u32)dbg); }
 
