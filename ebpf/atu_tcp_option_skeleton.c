@@ -645,142 +645,54 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("DBG csum1(be)=%x\n", (__u32)csum_be1);
         /* Fallback: full recompute if checksum did not change */
         if (csum_be1 == csum_be0) {
-            /* Fallback: full recompute over pseudo header + TCP header (no payload). */
+            /* Recompute TCP checksum using bpf_csum_diff on a contiguous header copy. */
             __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;
             if (doff_new > 60) doff_new = 60;
 
-            /* Manual 16-bit one's complement sum (network order), no bpf_csum_diff. */
-            __u32 sum32 = 0;
-            /* --- Segment accumulators for debug --- */
-            __u32 sum_ph = 0;       /* pseudo header partial */
-            __u32 sum_tcp_a = 0;    /* TCP bytes 0..15 */
-            __u32 sum_tcp_b = 0;    /* TCP bytes 18..(doff_new-1) */
-
-            /* Pseudo header: src(4) + dst(4) + zero(1)+proto(1) + tcp_len(2) */
-            __u8 ph_srcdst[8] = {0};
-            if (bpf_skb_load_bytes(skb, ip_off + 12, ph_srcdst, 8) < 0) goto _no_full;
-            /* Add src */
-            __u16 w = ((__u16)ph_srcdst[0] << 8) | (__u16)ph_srcdst[1];
-            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
-            w = ((__u16)ph_srcdst[2] << 8) | (__u16)ph_srcdst[3];
-            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
-            /* Add dst */
-            w = ((__u16)ph_srcdst[4] << 8) | (__u16)ph_srcdst[5];
-            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
-            w = ((__u16)ph_srcdst[6] << 8) | (__u16)ph_srcdst[7];
-            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
-            /* zero + proto */
-            w = (0u << 8) | (unsigned)IPPROTO_TCP;
-            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
-            /* tcp length must be summed in network byte order */
-            w = bpf_htons((__u16)(new_tot - ihl_bytes));
-            sum32 = add16_acc(sum32, w);
-            sum_ph = add16_acc(sum_ph, w);
-            bpf_printk("DBG sum_ph=%x\n", (sum_ph & 0xFFFF));
-
-            /* TCP header bytes (network order), excluding checksum field 16..17 */
-            /* First: bytes 0..15 */
+            /* Build tcpbuf[doff_new] with checksum field zeroed (bytes 16..17). */
+            __u8 tcpbuf[60] = {0};
+            /* Copy bytes 0..15 */
             #pragma clang loop unroll(full)
-            for (int i = 0; i < 16; i += 2) {
-                if ((__u32)(i + 2) > doff_new)
-                    break;
-                __u8 pair[2] = {0, 0};
-                if (bpf_skb_load_bytes(skb, tcp_off + i, pair, 2) < 0)
-                    goto _no_full;
-                w = ((__u16)pair[0] << 8) | (__u16)pair[1];
-                sum32 = add16_acc(sum32, w);
-                sum_tcp_a = add16_acc(sum_tcp_a, w);
+            for (int i = 0; i < 16; i++) {
+                if ((__u32)i >= doff_new) break;
+                __u8 b = 0;
+                if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) goto _no_full;
+                tcpbuf[i] = b;
             }
-            bpf_printk("DBG sum_tcp_a=%x\n", (sum_tcp_a & 0xFFFF));
-            /* Then: bytes 18..(doff_new-1) */
+            /* Zero checksum field 16..17 */
+            if (doff_new > 16) tcpbuf[16] = 0;
+            if (doff_new > 17) tcpbuf[17] = 0;
+            /* Copy bytes 18..(doff_new-1) */
             #pragma clang loop unroll(full)
-            for (int j = 18; j < 60; j += 2) {
-                if ((__u32)(j + 2) > doff_new)
-                    break;
-                __u8 pair2[2] = {0, 0};
-                if (bpf_skb_load_bytes(skb, tcp_off + j, pair2, 2) < 0)
-                    goto _no_full;
-                w = ((__u16)pair2[0] << 8) | (__u16)pair2[1];
-                sum32 = add16_acc(sum32, w);
-                sum_tcp_b = add16_acc(sum_tcp_b, w);
-            }
-            bpf_printk("DBG sum_tcp_b=%x\n", (sum_tcp_b & 0xFFFF));
-            /* Debug-dump a few 16-bit words from tail: j=18,20,22,24,26,28,30,32,34,36,38,40,42 */
-            #pragma clang loop unroll(full)
-            for (int dj = 18, idx = 0; dj <= 42; dj += 2, idx++) {
-                if ((__u32)(dj + 2) > doff_new)
-                    break;
-                __u8 p2[2] = {0, 0};
-                if (bpf_skb_load_bytes(skb, tcp_off + dj, p2, 2) < 0)
-                    break;
-                __u16 wdbg = ((__u16)p2[0] << 8) | (__u16)p2[1];
-                /* Print first 8 pairs to avoid flooding */
-                if (idx < 8) {
-                    bpf_printk("DBG tail[%u]=%x\n", (__u32)dj, (__u32)wdbg);
-                }
+            for (int j = 18; j < 60; j++) {
+                if ((__u32)j >= doff_new) break;
+                __u8 b2 = 0;
+                if (bpf_skb_load_bytes(skb, tcp_off + j, &b2, 1) < 0) goto _no_full;
+                tcpbuf[j] = b2;
             }
 
-            /* Option bytes sanity: recompute 12B option sum from opt_buf for comparison */
-            {
-                __u32 opt_chk = 0; __u16 wopt = 0;
-                /* opt_buf layout: [KIND][LEN][8B data][NOP][NOP] */
-                /* words: 0:(KIND<<8|LEN), 1..4: 8 bytes data, 5: (NOP<<8|NOP) */
-                wopt = ((__u16)opt_buf[0] << 8) | (__u16)opt_buf[1];
-                opt_chk = add16_acc(opt_chk, wopt);
-                wopt = ((__u16)opt_buf[2] << 8) | (__u16)opt_buf[3]; opt_chk = add16_acc(opt_chk, wopt);
-                wopt = ((__u16)opt_buf[4] << 8) | (__u16)opt_buf[5]; opt_chk = add16_acc(opt_chk, wopt);
-                wopt = ((__u16)opt_buf[6] << 8) | (__u16)opt_buf[7]; opt_chk = add16_acc(opt_chk, wopt);
-                wopt = ((__u16)opt_buf[8] << 8) | (__u16)opt_buf[9]; opt_chk = add16_acc(opt_chk, wopt);
-                wopt = ((__u16)opt_buf[10] << 8) | (__u16)opt_buf[11]; opt_chk = add16_acc(opt_chk, wopt);
-                bpf_printk("DBG sum_opt=%x\n", (opt_chk & 0xFFFF));
-            }
+            /* Build IPv4 pseudo header (12 bytes). */
+            __u8 ph2[12] = {0};
+            if (bpf_skb_load_bytes(skb, ip_off + 12, &ph2[0], 4) < 0) goto _no_full; /* src */
+            if (bpf_skb_load_bytes(skb, ip_off + 16, &ph2[4], 4) < 0) goto _no_full; /* dst */
+            ph2[8]  = 0;
+            ph2[9]  = IPPROTO_TCP;
+            __u16 tcp_len2 = (__u16)(new_tot - ihl_bytes);
+            *(__be16 *)&ph2[10] = bpf_htons(tcp_len2);
 
-            /* finalize: fold thrice then complement */
-            __u32 sum = (sum32 & 0xFFFF) + (sum32 >> 16);
-            sum = (sum & 0xFFFF) + (sum >> 16);
-            sum = (sum & 0xFFFF) + (sum >> 16);
-            __u16 sum16 = (~sum) & 0xFFFF;
-            __be16 sum_be = bpf_htons(sum16);
-            if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &sum_be, 2, 0) == 0) {
-                bpf_printk("DBG full_recomp=%x\n", (__u32)sum_be);
-                /* Secondary cross-check: if new TCP header length is exactly 44 bytes,
-                 * rebuild a contiguous tcpbuf[44] (with checksum field zeroed) and
-                 * compute checksum via bpf_csum_diff for comparison. */
+            /* Compute checksum = ~(sum(pseudo) + sum(tcp header)). */
+            __u32 sumx = 0;
+            sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph2, sizeof(ph2), 0);
+            sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, sumx);
+            /* fold */
+            sumx = (sumx & 0xFFFF) + (sumx >> 16);
+            sumx = (sumx & 0xFFFF) + (sumx >> 16);
+            sumx = (sumx & 0xFFFF) + (sumx >> 16);
+            __u16 sum16x = (~sumx) & 0xFFFF;
+            __be16 be_sumx = bpf_htons(sum16x);
+            if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &be_sumx, 2, 0) == 0) {
+                bpf_printk("DBG full_recomp=%x\n", (__u32)be_sumx);
                 if (doff_new == 44) {
-                    __u8 tcpbuf44[44] = {0};
-                    /* Copy bytes 0..15 */
-                    #pragma clang loop unroll(full)
-                    for (int i = 0; i < 16; i++) {
-                        __u8 b = 0;
-                        if (bpf_skb_load_bytes(skb, tcp_off + i, &b, 1) < 0) goto _no_full;
-                        tcpbuf44[i] = b;
-                    }
-                    /* Zero checksum field 16..17 */
-                    tcpbuf44[16] = 0; tcpbuf44[17] = 0;
-                    /* Copy bytes 18..43 */
-                    #pragma clang loop unroll(full)
-                    for (int j = 18; j < 44; j++) {
-                        __u8 b2 = 0;
-                        if (bpf_skb_load_bytes(skb, tcp_off + j, &b2, 1) < 0) goto _no_full;
-                        tcpbuf44[j] = b2;
-                    }
-                    /* pseudo header */
-                    __u8 ph2[12] = {0};
-                    if (bpf_skb_load_bytes(skb, ip_off + 12, &ph2[0], 4) < 0) goto _no_full;
-                    if (bpf_skb_load_bytes(skb, ip_off + 16, &ph2[4], 4) < 0) goto _no_full;
-                    ph2[8]  = 0; ph2[9] = IPPROTO_TCP;
-                    __u16 tcp_len2 = (__u16)(new_tot - ihl_bytes);
-                    *(__be16 *)&ph2[10] = bpf_htons(tcp_len2);
-
-                    __u32 sumx = 0;
-                    sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph2, sizeof(ph2), 0);
-                    sumx = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf44, 44, sumx);
-                    /* fold */
-                    sumx = (sumx & 0xFFFF) + (sumx >> 16);
-                    sumx = (sumx & 0xFFFF) + (sumx >> 16);
-                    sumx = (sumx & 0xFFFF) + (sumx >> 16);
-                    __u16 sum16x = (~sumx) & 0xFFFF;
-                    __be16 be_sumx = bpf_htons(sum16x);
                     bpf_printk("DBG full_recomp44=%x\n", (__u32)be_sumx);
                 }
             }
@@ -806,7 +718,8 @@ _no_full: ;
     {
         __u16 csum_be2 = 0;
         (void)bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be2, 2);
-        bpf_printk("DBG csum2(be)=%x\n", (__u32)csum_be2);
+        __u16 csum_host2 = bpf_ntohs(csum_be2);
+        bpf_printk("DBG csum2 raw=%x host=%x\n", (__u32)csum_be2, (__u32)csum_host2);
     }
     return BPF_OK;
 }
