@@ -372,19 +372,18 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
-    /* With BPF_ADJ_ROOM_NET the space is inserted at the L3/L4 boundary,
-     * but the TCP header start offset (tcp_off) relative to skb->data remains
-     * unchanged. The new end of (old TCP header + inserted option) is
-     * (T0 + doff_bytes + ATU_WIRE_BYTES), which equals (tcp_off + doff_bytes
-     * + ATU_WIRE_BYTES). Therefore, do NOT advance tcp_off here; keep it at T0.
+    /* With BPF_ADJ_ROOM_NET, space is inserted at the L3/L4 boundary and the
+     * TCP header start moves forward by ATU_WIRE_BYTES (L4 is shifted).
+     * Therefore advance tcp_off to the new TCP start (T1 = T0 + ATU_WIRE_BYTES).
      */
+    tcp_off += ATU_WIRE_BYTES;
+    bpf_printk("EGRESS tcp_off advanced to %u\n", tcp_off);
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
-        /* After adjust_room, tcp_off is NOT advanced. The new end of
-         * (old TCP header + inserted option) is T0 + doff_bytes + ATU_WIRE_BYTES,
-         * which equals (tcp_off + doff_bytes + ATU_WIRE_BYTES). */
-        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES;
+        /* After adjust_room, tcp_off has been advanced. The new end of
+         * (old TCP header + inserted option) is tcp_off + doff_bytes. */
+        __u32 need = tcp_off + doff_bytes; /* tcp_off already includes the inserted bytes */
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
             return BPF_OK;
