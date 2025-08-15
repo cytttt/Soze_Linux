@@ -436,7 +436,6 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     {
         if (doff_bytes > 60) return BPF_OK; /* defensive: TCP header max 60B */
         /* Copy header from T1 -> T0 one byte at a time (verifier-friendly). */
-        #pragma clang loop unroll(full)
         for (int i = 0; i < 60; i++) {
             if ((__u32)i >= doff_bytes)
                 break;
@@ -534,8 +533,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     bpf_printk("EGRESS wrote option, will recompute full csum\n");
     /* -------- Final full TCP checksum recompute (robustness) --------
      * Recompute TCP checksum from scratch over IPv4 pseudo header + TCP header
-     * directly from the skb (no payload for pure ACK). We avoid copying the TCP
-     * header to stack; instead, we sum two ranges around the checksum field.
+     * using stack buffers (verifier-friendly). We skip the checksum field
+     * itself by summing two ranges: [0..15] and [18..doff_new-1].
      */
     {
         __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;  /* final TCP header size */
@@ -556,18 +555,30 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         __u32 sum = 0;
         sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
 
-        /* (b) TCP header over skb (exclude checksum field at offset 16..17) */
+        /* (b) Sum TCP header (excluding checksum field at 16..17) via stack buffers */
         const __u32 chk_off = offsetof(struct tcphdr, check); /* 16 */
-        /* Sum from tcp_off .. tcp_off+chk_off (first 16 bytes) */
-        if (chk_off)
-            sum = bpf_csum_diff(NULL, 0, (__be32 *)(long)(tcp_off), chk_off, sum);
-        /* Sum from tcp_off+chk_off+2 .. tcp_off+doff_new (rest of header) */
-        __u32 tail_off = tcp_off + chk_off + 2;
+        __u8 head[16] = {0};
+        __u8 tail[44] = {0}; /* max 60-18 = 42, keep 44 for alignment slack */
+
+        /* First 16 bytes */
+        if (bpf_skb_load_bytes(skb, tcp_off, head, sizeof(head)) < 0) {
+            bpf_printk("EGRESS csum load head failed\n");
+            return BPF_OK;
+        }
+        sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)head, sizeof(head), sum);
+
+        /* Remaining bytes after checksum field */
         __u32 tail_len = 0;
         if (doff_new > chk_off + 2)
             tail_len = doff_new - (chk_off + 2);
-        if (tail_len)
-            sum = bpf_csum_diff(NULL, 0, (__be32 *)(long)(tail_off), tail_len, sum);
+        if (tail_len) {
+            if (tail_len > sizeof(tail)) tail_len = sizeof(tail);
+            if (bpf_skb_load_bytes(skb, tcp_off + chk_off + 2, tail, tail_len) < 0) {
+                bpf_printk("EGRESS csum load tail failed\n");
+                return BPF_OK;
+            }
+            sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tail, tail_len, sum);
+        }
 
         /* (c) Fold and complement */
         sum = (sum & 0xFFFF) + (sum >> 16);
