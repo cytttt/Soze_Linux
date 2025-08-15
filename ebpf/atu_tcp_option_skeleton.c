@@ -369,6 +369,47 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("BEF T0=%u ihl=%u\n", T0, ihl_bytes);
         bpf_printk("BEF doff=%u len=%u\n", doff_bytes, (__u32)skb->len);
         bpf_printk("BEF T0+12=%x %x\n", (__u32)b12, (__u32)b13);
+
+        /* Dump a few TCP words before adjust to see if TS/ECR are still correct */
+        if (doff_bytes >= 32) {
+            __u8 p2[2] = {0,0};
+            __u16 w;
+            /* 18 */
+            if (bpf_skb_load_bytes(skb, T0 + 18, p2, 2) == 0) {
+                w = ((__u16)p2[0] << 8) | p2[1];
+                bpf_printk("BEF tail[18]=%x\n", (__u32)w);
+            }
+            /* 20 */
+            if (bpf_skb_load_bytes(skb, T0 + 20, p2, 2) == 0) {
+                w = ((__u16)p2[0] << 8) | p2[1];
+                bpf_printk("BEF tail[20]=%x\n", (__u32)w);
+            }
+            /* 22 */
+            if (bpf_skb_load_bytes(skb, T0 + 22, p2, 2) == 0) {
+                w = ((__u16)p2[0] << 8) | p2[1];
+                bpf_printk("BEF tail[22]=%x\n", (__u32)w);
+            }
+            /* 24 */
+            if (bpf_skb_load_bytes(skb, T0 + 24, p2, 2) == 0) {
+                w = ((__u16)p2[0] << 8) | p2[1];
+                bpf_printk("BEF tail[24]=%x\n", (__u32)w);
+            }
+            /* 26 */
+            if (bpf_skb_load_bytes(skb, T0 + 26, p2, 2) == 0) {
+                w = ((__u16)p2[0] << 8) | p2[1];
+                bpf_printk("BEF tail[26]=%x\n", (__u32)w);
+            }
+            /* 28 */
+            if (bpf_skb_load_bytes(skb, T0 + 28, p2, 2) == 0) {
+                w = ((__u16)p2[0] << 8) | p2[1];
+                bpf_printk("BEF tail[28]=%x\n", (__u32)w);
+            }
+            /* 30 */
+            if (bpf_skb_load_bytes(skb, T0 + 30, p2, 2) == 0) {
+                w = ((__u16)p2[0] << 8) | p2[1];
+                bpf_printk("BEF tail[30]=%x\n", (__u32)w);
+            }
+        }
     }    
     /* Ensure the old TCP header is linear before adjustment. */
     {
