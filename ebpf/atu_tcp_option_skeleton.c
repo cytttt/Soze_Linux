@@ -507,16 +507,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             }
         }
     }
-    /* (1b) Fix TCP checksum for the changed 16-bit word at bytes 12..13
-     * (high nibble of byte 12 is data offset; byte 13 are flags). */
-    {
-        __u16 old_word = ((__u16)doff_byte << 8) | (__u16)flags;       /* network byte order fields packed */
-        __u16 new_word = ((__u16)new_doff_byte << 8) | (__u16)flags;   /* flags unchanged */
-        bpf_l4_csum_replace(skb,
-                            tcp_off + offsetof(struct tcphdr, check),
-                            bpf_htons(old_word), bpf_htons(new_word),
-                            0);
-    }
+    /* Skip incremental checksum updates - will do full recompute at the end */
 
     /* (2) Now write the option bytes at the end of the old TCP header. */
     {
@@ -539,26 +530,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
 
-    /* (3) Fix TCP checksum: pseudo length delta + option payload delta */
-    __u32 old_pl = ( __u32 )(tot - ihl_bytes);
-    __u32 new_pl = ( __u32 )(new_tot - ihl_bytes);
-    __u32 old_pl_be32 = bpf_htonl(old_pl);
-    __u32 new_pl_be32 = bpf_htonl(new_pl);
-
-    /* (3a) pseudo header length update */
-    bpf_l4_csum_replace(skb,
-                        tcp_off + offsetof(struct tcphdr, check),
-                        old_pl_be32, new_pl_be32,
-                        BPF_F_PSEUDO_HDR);
-
-    /* (3b) add checksum of the inserted option bytes */
-    __u32 opt_csum = 0;
-    opt_csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)opt_buf, ATU_WIRE_BYTES, 0);
-    bpf_l4_csum_replace(skb,
-                        tcp_off + offsetof(struct tcphdr, check),
-                        0, opt_csum, 0);
-
-    bpf_printk("EGRESS wrote option + fixed csum\n");
+    /* Skip incremental checksum updates - will do full recompute at the end */
+    bpf_printk("EGRESS wrote option, will recompute full csum\n");
     /* -------- Final full TCP checksum recompute (robustness) --------
      * Recompute checksum from scratch over pseudo header + TCP header (no payload).
      * This avoids any incremental-miss issues and silences tcpdump "incorrect". */
@@ -575,7 +548,9 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         __builtin_memcpy(&ph[4],  &daddr, 4);
         ph[8]  = 0;
         ph[9]  = proto_u8;
-        *(__be16 *)&ph[10] = bpf_htons(tcp_len);
+        /* Use NEW TCP length (after adding option) */
+        __u32 new_tcp_len = new_tot - ihl_bytes;
+        *(__be16 *)&ph[10] = bpf_htons(new_tcp_len);
 
         /* (b) Read TCP header (doff_new) into stack buffer and zero checksum field */
         __u8 tcpbuf[60] = {0};
@@ -586,10 +561,15 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* checksum field at offset offsetof(struct tcphdr, check) */
         tcpbuf[offsetof(struct tcphdr, check) + 0] = 0;
         tcpbuf[offsetof(struct tcphdr, check) + 1] = 0;
+        
+        bpf_printk("EGRESS csum: tcp_len=%u, doff_new=%u", new_tcp_len, doff_new);
 
         /* (c) Compute csum over pseudo header then TCP header */
         csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), 0);
+        __u32 ph_csum = csum;
         csum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)tcpbuf, doff_new, csum);
+        
+        bpf_printk("EGRESS csum: ph_csum=0x%x, total_csum=0x%x", ph_csum, csum);
 
         /* (d) Fold to 16-bit and complement (repeat until no carry) */
         csum = (csum & 0xFFFF) + (csum >> 16);
@@ -597,6 +577,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         csum = (csum & 0xFFFF) + (csum >> 16);
         __u16 csum16 = (~csum) & 0xFFFF;
         __be16 csum_be = bpf_htons(csum16);
+        
+        bpf_printk("EGRESS final csum16=0x%x, csum_be=0x%x", csum16, bpf_ntohs(csum_be));
 
         /* (e) Write back the final checksum (network order) */
         if (bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check),
