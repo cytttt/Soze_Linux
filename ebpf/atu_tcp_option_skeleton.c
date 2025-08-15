@@ -641,6 +641,20 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 sum_tcp_b = add16_acc(sum_tcp_b, w);
             }
             bpf_printk("DBG sum_tcp_b=%x\n", (sum_tcp_b & 0xFFFF));
+            /* Debug-dump a few 16-bit words from tail: j=18,20,22,24,26,28,30,32,34,36,38,40,42 */
+            #pragma clang loop unroll(full)
+            for (int dj = 18, idx = 0; dj <= 42; dj += 2, idx++) {
+                if ((__u32)(dj + 2) > doff_new)
+                    break;
+                __u8 p2[2] = {0, 0};
+                if (bpf_skb_load_bytes(skb, tcp_off + dj, p2, 2) < 0)
+                    break;
+                __u16 wdbg = ((__u16)p2[0] << 8) | (__u16)p2[1];
+                /* Print first 8 pairs to avoid flooding */
+                if (idx < 8) {
+                    bpf_printk("DBG tail[%u]=%x\n", (__u32)dj, (__u32)wdbg);
+                }
+            }
 
             /* Option bytes sanity: recompute 12B option sum from opt_buf for comparison */
             {
