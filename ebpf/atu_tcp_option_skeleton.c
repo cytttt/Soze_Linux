@@ -377,11 +377,19 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
      * payload move forward by ATU_WIRE_BYTES; the IPv4 header stays in
      * place. Keep offsets in sync accordingly.
      */
+    /* Note: tcp_off is moved forward by ATU_WIRE_BYTES, so the old header end
+     * (T0 + doff_bytes) becomes (tcp_off + doff_bytes - ATU_WIRE_BYTES).
+     * The new header end (after inserting ATU_WIRE_BYTES) is
+     * (T0 + doff_bytes + ATU_WIRE_BYTES) == (tcp_off + doff_bytes).
+     */
     tcp_off += ATU_WIRE_BYTES;
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
-        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES;
+        /* After adjust_room, tcp_off advanced by ATU_WIRE_BYTES. The new end of
+         * (old TCP header + inserted option) is T0 + doff_bytes + ATU_WIRE_BYTES,
+         * which equals (tcp_off) + doff_bytes. So do NOT add ATU_WIRE_BYTES again. */
+        __u32 need = tcp_off + doff_bytes;
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
             return BPF_OK;
@@ -434,8 +442,37 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("EGRESS store doff failed\n");
         return BPF_OK;
     }
+    /* Debug/sanity: read back the updated doff byte and verify */
+    {
+        __u8 rb_doff = 0;
+        if (bpf_skb_load_bytes(skb, tcp_off + 12, &rb_doff, 1) == 0) {
+            __u32 rb_doff_bytes = ((__u32)(rb_doff >> 4) & 0xF) * 4;
+            bpf_printk("EGRESS doff rb=%u bytes (expected %u)\n",
+                       rb_doff_bytes, (unsigned)(doff_bytes + ATU_WIRE_BYTES));
+            /* If the nybble is unexpectedly small (< 20), bail out to avoid bad packets */
+            if (rb_doff_bytes < 20) {
+                bpf_printk("EGRESS doff too small after update, abort\n");
+                return BPF_OK;
+            }
+        }
+    }
 
     /* (2) Now write the option bytes at the end of the old TCP header. */
+    {
+        __u8 cur_doff_byte = 0;
+        if (bpf_skb_load_bytes(skb, tcp_off + 12, &cur_doff_byte, 1) < 0)
+            return BPF_OK;
+        __u32 cur_doff_bytes = ((__u32)(cur_doff_byte >> 4) & 0xF) * 4;
+        __u32 need_final = tcp_off + cur_doff_bytes;
+        if (need_final > (__u32)skb->len) {
+            bpf_printk("EGRESS need_final(%u) > skb->len(%u)\n", need_final, skb->len);
+            return BPF_OK;
+        }
+        if (bpf_skb_pull_data(skb, need_final)) {
+            bpf_printk("EGRESS pull_data fail at final @%u\n", need_final);
+            return BPF_OK;
+        }
+    }
     if (bpf_skb_store_bytes(skb, tcp_off + doff_bytes,
                             opt_buf, ATU_WIRE_BYTES, 0)) {
         bpf_printk("EGRESS write opt failed\n");
@@ -462,7 +499,16 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                         0, opt_csum, 0);
 
     bpf_printk("EGRESS wrote option + fixed csum\n");
-
+    /* Optional: After fixing TCP checksum (at the end of the function), log final IP total length and TCP doff */
+    {
+        __u8 final_doff_b = 0; __u16 final_tot_be2 = 0;
+        if (bpf_skb_load_bytes(skb, tcp_off + 12, &final_doff_b, 1) == 0 &&
+            bpf_skb_load_bytes(skb, ip_off + 2, &final_tot_be2, 2) == 0) {
+            __u16 final_tot = bpf_ntohs(final_tot_be2);
+            __u32 final_doff = ((__u32)(final_doff_b >> 4) & 0xF) * 4;
+            bpf_printk("EGRESS final tot=%u, doff=%u\n", final_tot, final_doff);
+        }
+    }
     return BPF_OK;
 }
 #endif
