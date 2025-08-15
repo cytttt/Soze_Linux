@@ -53,6 +53,7 @@
         "__split_buffer": "c",
         "exception": "c",
         "system_error": "c",
-        "functional": "c"
+        "functional": "c",
+        "stdbool.h": "c"
     }
 }
