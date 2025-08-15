@@ -372,18 +372,25 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
-    /* With BPF_ADJ_ROOM_NET, space is inserted at the L3/L4 boundary and the
-     * TCP header start moves forward by ATU_WIRE_BYTES (L4 is shifted).
-     * Therefore advance tcp_off to the new TCP start (T1 = T0 + ATU_WIRE_BYTES).
+
+    /* Re-derive IPv4 IHL and TCP start after adjust_room: skb data/offsets
+     * may have changed. Keep tcp_off = ip_off + ihl_bytes (T0).
      */
-    tcp_off += ATU_WIRE_BYTES;
-    bpf_printk("EGRESS tcp_off advanced to %u\n", tcp_off);
+    if (bpf_skb_load_bytes(skb, ip_off + 0, &vihl, 1) < 0)
+        return BPF_OK;
+    if ((vihl & 0xF0) != 0x40)
+        return BPF_OK;
+    ihl_bytes = (vihl & 0x0F) * 4;
+    if (ihl_bytes < 20)
+        return BPF_OK;
+    tcp_off = ip_off + ihl_bytes;
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
-        /* After adjust_room, tcp_off has been advanced. The new end of
-         * (old TCP header + inserted option) is tcp_off + doff_bytes. */
-        __u32 need = tcp_off + doff_bytes; /* tcp_off already includes the inserted bytes */
+        /* We haven't updated doff yet when ensuring linearity here; hence use
+         * old doff_bytes + ATU_WIRE_BYTES. Later, after doff is updated and
+         * read back, need_final uses tcp_off + cur_doff_bytes. */
+        __u32 need = tcp_off + doff_bytes + ATU_WIRE_BYTES; /* tcp_off unchanged; add inserted bytes explicitly */
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
             return BPF_OK;
@@ -467,6 +474,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             return BPF_OK;
         }
     }
+    /* Write option at end of the *old* TCP header; the gap from adjust_room
+     * extends the header area. We grow doff below so receivers account for it. */
     if (bpf_skb_store_bytes(skb, tcp_off + doff_bytes,
                             opt_buf, ATU_WIRE_BYTES, 0)) {
         bpf_printk("EGRESS write opt failed\n");
