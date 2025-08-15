@@ -33,18 +33,6 @@
 #include <stdbool.h>
 
 // ----- Configurable constants -----
-/* --- compat for older kernels/headers (e.g., 5.15) ----------------------- */
-/*
-#ifndef BPF_F_ADJ_ROOM_ENCAP_L3
-#define BPF_F_ADJ_ROOM_ENCAP_L3 0
-#endif
-#ifndef BPF_F_ADJ_ROOM_ENCAP_L4
-#define BPF_F_ADJ_ROOM_ENCAP_L4 0
-#endif
-#ifndef BPF_F_ADJ_ROOM_FIXED_GSO
-#define BPF_F_ADJ_ROOM_FIXED_GSO 0
-#endif
-*/
 /* ------------------------------------------------------------------------- */
 #define ATU_TCP_OPT_KIND   253        // Experimental/Private Use
 #define ATU_TCP_OPT_LEN    10         // Kind(1)+Len(1)+ATU(8)
@@ -363,19 +351,20 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (opt_room < ATU_WIRE_BYTES)
         return BPF_OK;
 
-    int adj_ret = bpf_skb_adjust_room(skb, ATU_WIRE_BYTES,
-            BPF_ADJ_ROOM_NET,
-            BPF_F_ADJ_ROOM_ENCAP_L4 | BPF_F_ADJ_ROOM_FIXED_GSO);
+    int adj_ret = bpf_skb_adjust_room(
+        skb, ATU_WIRE_BYTES,
+        BPF_ADJ_ROOM_NET,
+        BPF_F_ADJ_ROOM_FIXED_GSO | BPF_F_ADJ_ROOM_NO_CSUM_RESET);
     if (adj_ret) {
         bpf_printk("EGRESS adjust_room failed: %d\n", adj_ret);
         return BPF_OK;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
-    /* On older kernels (e.g., 5.15) without ENCAP_L4, BPF_ADJ_ROOM_NET inserts
-     * space between L2 and L3, shifting BOTH IP and TCP headers forward by
-     * ATU_WIRE_BYTES. Keep offsets in sync.
+    /* With BPF_ADJ_ROOM_NET, space is inserted at the L3/L4 boundary
+     * (i.e., at the start of the TCP header). Only the TCP header and
+     * payload move forward by ATU_WIRE_BYTES; the IPv4 header stays in
+     * place. Keep offsets in sync accordingly.
      */
-    ip_off  += ATU_WIRE_BYTES;
     tcp_off += ATU_WIRE_BYTES;
 
     /* Re-fetch TCP doff after adjust (defensive) */
