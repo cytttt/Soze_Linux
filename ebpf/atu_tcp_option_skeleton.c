@@ -672,9 +672,10 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             /* zero + proto */
             w = (0u << 8) | (unsigned)IPPROTO_TCP;
             sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
-            /* tcp length (host order 0x002c) */
-            w = (__u16)(new_tot - ihl_bytes);
-            sum32 = add16_acc(sum32, w); sum_ph = add16_acc(sum_ph, w);
+            /* tcp length must be summed in network byte order */
+            w = bpf_htons((__u16)(new_tot - ihl_bytes));
+            sum32 = add16_acc(sum32, w);
+            sum_ph = add16_acc(sum_ph, w);
             bpf_printk("DBG sum_ph=%x\n", (sum_ph & 0xFFFF));
 
             /* TCP header bytes (network order), excluding checksum field 16..17 */
