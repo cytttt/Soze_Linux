@@ -606,7 +606,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             w = (0u << 8) | (unsigned)IPPROTO_TCP;
             sum32 = add16_acc(sum32, w);
             /* tcp length */
-            w = bpf_htons((__u16)(new_tot - ihl_bytes));
+            w = (__u16)(new_tot - ihl_bytes);
             sum32 = add16_acc(sum32, w);
 
             /* TCP header bytes (network order), excluding checksum field 16..17 */
