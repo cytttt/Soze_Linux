@@ -435,13 +435,14 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         }
     }
 
-    /* Move the TCP header bytes back to T0 so the 12-byte gap ends up at the
-     * end of the TCP header (between header and payload). Use constant-size
-     * ops to satisfy the verifier.
+    /* Move the TCP header bytes back to T0 using a temporary stack buffer to get
+     * a stable snapshot (helps avoid timing/overlap surprises).
      */
     {
-        if (doff_bytes > 60) return BPF_OK; /* defensive: TCP header max 60B */
-        /* Copy header from T1 -> T0 one byte at a time (verifier-friendly). */
+        if (doff_bytes > 60) return BPF_OK; /* defensive */
+        __u8 tcp_copy[60] = {0};
+        /* Read old header from T1 into tcp_copy */
+        #pragma clang loop unroll(full)
         for (int i = 0; i < 60; i++) {
             if ((__u32)i >= doff_bytes)
                 break;
@@ -450,7 +451,14 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 bpf_printk("EGRESS load @T1+%d failed\n", i);
                 return BPF_OK;
             }
-            if (bpf_skb_store_bytes(skb, tcp_t0 + i, &b, 1, 0)) {
+            tcp_copy[i] = b;
+        }
+        /* Write snapshot to T0 */
+        #pragma clang loop unroll(full)
+        for (int i = 0; i < 60; i++) {
+            if ((__u32)i >= doff_bytes)
+                break;
+            if (bpf_skb_store_bytes(skb, tcp_t0 + i, &tcp_copy[i], 1, 0)) {
                 bpf_printk("EGRESS store @T0+%d failed\n", i);
                 return BPF_OK;
             }
