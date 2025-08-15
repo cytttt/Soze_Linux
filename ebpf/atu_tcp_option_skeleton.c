@@ -404,27 +404,20 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("AFT T0+12=%x %x\n", (__u32)t0b12, (__u32)t0b13);
         bpf_printk("AFT T1+12=%x %x\n", (__u32)t1b12, (__u32)t1b13);
     }
-    /* TCP header start really moved to T1 (= T0 + ATU_WIRE_BYTES) on this path. */
-    tcp_off = tcp_off + ATU_WIRE_BYTES;
-    bpf_printk("AFT SET tcp_off=%u\n", tcp_off);
-
-    /* Re-derive IPv4 IHL after adjust_room (layout may change). TCP start has
-     * shifted by ATU_WIRE_BYTES, so set tcp_off = (ip_off + ihl_bytes) + ATU_WIRE_BYTES.
+    /* After adjust_room(+12, NET):
+     *  - T0 = original TCP start (ip_off + ihl)
+     *  - T1 = shifted TCP start = T0 + ATU_WIRE_BYTES
+     * We will move the TCP header bytes from T1 back to T0, so the 12-byte gap
+     * ends up at the end of the TCP header (right before payload).
      */
-    if (bpf_skb_load_bytes(skb, ip_off + 0, &vihl, 1) < 0)
-        return BPF_OK;
-    if ((vihl & 0xF0) != 0x40)
-        return BPF_OK;
-    ihl_bytes = (vihl & 0x0F) * 4;
-    if (ihl_bytes < 20)
-        return BPF_OK;
-    tcp_off = ip_off + ihl_bytes + ATU_WIRE_BYTES;
-    bpf_printk("AFT RDR tcp_off=%u ihl=%u\n", tcp_off, ihl_bytes);
+    __u32 tcp_t0 = ip_off + ihl_bytes;            /* original L4 start */
+    __u32 tcp_t1 = tcp_t0 + ATU_WIRE_BYTES;       /* shifted L4 start  */
+    bpf_printk("AFT SET T0=%u T1=%u\n", tcp_t0, tcp_t1);
 
     /* Ensure linear/writable up to end of (old header + inserted option). */
     {
-        /* From new TCP start (T1), ensure we have old_doff + inserted bytes linear. */
-        __u32 need = tcp_off + doff_bytes;
+        /* Ensure we can read the whole old TCP header at T1 (= T0 + 12). */
+        __u32 need = tcp_t1 + doff_bytes; /* end of old header after shift */
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
             return BPF_OK;
@@ -433,6 +426,24 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             bpf_printk("EGRESS pull_data fail after adjust @%u\n", need);
             return BPF_OK;
         }
+    }
+
+    /* Move the TCP header bytes back to T0 so the 12-byte gap ends up at the
+     * end of the TCP header (between header and payload).
+     */
+    {
+        if (doff_bytes > 60) return BPF_OK; /* defensive: TCP header max 60B */
+        __u8 hdr_buf[60];
+        if (bpf_skb_load_bytes(skb, tcp_t1, hdr_buf, doff_bytes) < 0) {
+            bpf_printk("EGRESS load hdr @T1 failed\n");
+            return BPF_OK;
+        }
+        if (bpf_skb_store_bytes(skb, tcp_t0, hdr_buf, doff_bytes, 0)) {
+            bpf_printk("EGRESS store hdr @T0 failed\n");
+            return BPF_OK;
+        }
+        /* From here on, use tcp_off = T0 as the TCP start. */
+        tcp_off = tcp_t0;
     }
 
     /* ----------------------- L3: IPv4 total length + checksum ----------------------- */
@@ -492,7 +503,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     /* (2) Now write the option bytes at the end of the old TCP header. */
     {
         __u32 expected_new_doff = doff_bytes + ATU_WIRE_BYTES;
-        __u32 need_final = tcp_off + expected_new_doff;
+        __u32 need_final = tcp_off + expected_new_doff; /* tcp_off is T0 */
         if (need_final > (__u32)skb->len) {
             bpf_printk("EGRESS need_final(%u) > skb->len(%u)\n", need_final, skb->len);
             return BPF_OK;
