@@ -167,7 +167,7 @@ static __always_inline int tcp_payload_len(void *nh, void *data_end,
 
 #if !BUILD_SEND
 // -----------------------------------------------------------------------------
-// Receiver ingress (TC): read ATU from DATA payload TLV and cache per-flow
+// Receiver ingress (TC): scan TCP options for ATU (Kind=253, Len=10) and cache per-flow (fallback to test defaults if enabled)
 // -----------------------------------------------------------------------------
 SEC("classifier/rx_ingress_cache_atu")
 int rx_ingress_cache_atu(struct __sk_buff *skb) {
@@ -175,66 +175,110 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
     void *data_end = (void *)(long)skb->data_end;
 
     __u16 ethp;
-    if (parse_eth(&data, &data_end, &ethp) < 0) return BPF_OK;
-    if (ethp != ETH_P_IP) return BPF_OK;
+    /* L2 */
+    struct ethhdr *eth = (struct ethhdr *)data;
+    if ((void *)(eth + 1) > data_end)
+        return BPF_OK;
+    ethp = bpf_ntohs(eth->h_proto);
+    if (ethp != ETH_P_IP)
+        return BPF_OK;
+    data = eth + 1;
 
-    struct iphdr *ip;
-    if (parse_ipv4(&data, &data_end, &ip) < 0) return BPF_OK;
+    /* L3 (IPv4, TCP) */
+    struct iphdr *ip = (struct iphdr *)data;
+    if ((void *)(ip + 1) > data_end)
+        return BPF_OK;
+    if (ip->version != 4 || ip->protocol != IPPROTO_TCP)
+        return BPF_OK;
+    __u32 ihl_bytes = ip->ihl * 4;
+    if (ihl_bytes < sizeof(*ip))
+        return BPF_OK;
+    if ((void *)ip + ihl_bytes > data_end)
+        return BPF_OK;
 
-    struct tcphdr *tcp;
-    void *payload = data; /* data now points to TCP header end */
-    if (parse_tcp(&payload, &data_end, &tcp) < 0) return BPF_OK;
+    /* L4 TCP */
+    struct tcphdr *tcp = (struct tcphdr *)((void *)ip + ihl_bytes);
+    if ((void *)(tcp + 1) > data_end)
+        return BPF_OK;
+    __u32 doff_bytes = tcp->doff * 4;
+    if (doff_bytes < sizeof(*tcp))
+        return BPF_OK;
+    if ((void *)tcp + doff_bytes > data_end)
+        return BPF_OK;
 
-    int plen = tcp_payload_len((void *)ip, data_end, ip, tcp);
-
-    /* Prepare flow key (sender->receiver for DATA). */
+    /* Build flow key (sender->receiver) */
     struct flow4_key k = {};
     fill_flow4_key(&k, ip, tcp);
 
-    /* Try to parse TLV at payload start: [type][len][u32 numer][u32 denom] */
-    int tlv_ok = 0;
-    __u32 numer_host = 0, denom_host = 0;
+    /* --- Scan TCP options for ATU (Kind=ATU_TCP_OPT_KIND, Len=ATU_TCP_OPT_LEN) --- */
+    __u32 opt_off = (__u32)((__u8 *)tcp - (__u8 *)((void *)0)) + 20; /* tcp base + 20 */
+    __u32 opt_end = (__u32)((__u8 *)tcp - (__u8 *)((void *)0)) + doff_bytes;
 
-    if (plen > 0) {
-        if (payload + 2 + ATU_DATA_BYTES <= data_end) {
-            __u8 tlv_type = *(__u8 *)payload;
-            __u8 tlv_len  = *(__u8 *)(payload + 1);
-            if (tlv_type == SW_TLV_TYPE_ATU && tlv_len == 8) {
-                __u32 numer_net = 0, denom_net = 0;
-                __builtin_memcpy(&numer_net,  payload + 2, sizeof(__u32));
-                __builtin_memcpy(&denom_net,  payload + 6, sizeof(__u32));
-                numer_host = bpf_ntohl(numer_net);
-                denom_host = bpf_ntohl(denom_net);
-                tlv_ok = 1;
-            }
+    __u32 numer_host = 0, denom_host = 0;
+    int found = 0;
+
+#pragma clang loop unroll(full)
+    for (int i = 0; i < 40; i++) {
+        if (opt_off + 1 > opt_end)
+            break;
+
+        __u8 kind = 0;
+        if (bpf_skb_load_bytes(skb, opt_off, &kind, 1) < 0)
+            break;
+
+        if (kind == 0) { /* EOL */
+            break;
+        } else if (kind == 1) { /* NOP */
+            opt_off += 1;
+            continue;
         }
+
+        if (opt_off + 2 > opt_end)
+            break;
+
+        __u8 len = 0;
+        if (bpf_skb_load_bytes(skb, opt_off + 1, &len, 1) < 0)
+            break;
+
+        if (len < 2)  /* malformed, stop */
+            break;
+
+        __u32 next = opt_off + len;
+        if (next > opt_end)
+            break;
+
+        if (kind == ATU_TCP_OPT_KIND && len == ATU_TCP_OPT_LEN) {
+            __u32 numer_be = 0, denom_be = 0;
+            if (bpf_skb_load_bytes(skb, opt_off + 2, &numer_be, 4) < 0)
+                break;
+            if (bpf_skb_load_bytes(skb, opt_off + 6, &denom_be, 4) < 0)
+                break;
+
+            numer_host = bpf_ntohl(numer_be);
+            denom_host = bpf_ntohl(denom_be);
+            found = 1;
+            break;
+        }
+
+        opt_off = next;
     }
 
 #if ATU_TEST_MODE
-    /* If TLV not present, synthesize a default for testing so egress can insert. */
-    if (!tlv_ok) {
+    if (!found) {
         numer_host = 9000;
         denom_host = 10000;
-        tlv_ok = 1;
+        found = 1;
+        bpf_printk("RX TEST fallback ATU %u/%u\n", numer_host, denom_host);
     }
 #endif
 
-    if (tlv_ok) {
-        struct atu_val atu_host = {
-            .numer = numer_host,
-            .denom = denom_host,
-        };
-
-        bpf_printk("RX cache ATU %u/%u\n", numer_host, denom_host);
+    if (found) {
+        struct atu_val v = { .numer = numer_host, .denom = denom_host };
+        bpf_printk("RX cache ATU %u/%u\n", v.numer, v.denom);
         bpf_printk("flow s=%x d=%x\n", k.saddr, k.daddr);
         bpf_printk("ports %u->%u\n", bpf_ntohs(k.sport), bpf_ntohs(k.dport));
-
-        bpf_printk("key sa=%x da=%x\n", k.saddr, k.daddr);
-        bpf_printk("key sp=%x dp=%x\n", k.sport, k.dport);
-        bpf_printk("key proto=%x\n", k.proto);
-        bpf_map_update_elem(&rx_flow_atu, &k, &atu_host, BPF_ANY);
+        bpf_map_update_elem(&rx_flow_atu, &k, &v, BPF_ANY);
     }
-
     return BPF_OK;
 }
 #endif
@@ -426,7 +470,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     __u16 w28 = 0, w30 = 0;
 
-    // ========== BEF：adjust_room 之前，T0 =============
+    // ========== BEF：adjust_room ，T0 =============
     if (bpf_skb_load_bytes(skb, tcp_off + 28, &w28, 2) == 0 &&
         bpf_skb_load_bytes(skb, tcp_off + 30, &w30, 2) == 0) {
         bpf_printk("BEF w28=%x\n", (__u32)w28);
@@ -537,7 +581,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* From here on, use tcp_off = T0 as the TCP start. */
         tcp_off = tcp_t0;
     }
-    // ========== AFT0：搬移完成後，T0 =============
+    // ========== AFT0：after move header forward to T0 =============
     if (bpf_skb_load_bytes(skb, tcp_off + 28, &w28, 2) == 0 &&
         bpf_skb_load_bytes(skb, tcp_off + 30, &w30, 2) == 0) {
         bpf_printk("AFT0 w28=%x\n", (__u32)w28);
