@@ -59,9 +59,6 @@ static __always_inline __u32 add16_acc(__u32 acc, __u16 w) {
 #define USE_SK_STORAGE 0  // default off so RX build won't try to create sk_storage
 #endif
 
-// Assume your switch injects a DATA payload TLV like: [type=0xA1][len=8][u32 numer][u32 denom]
-#define SW_TLV_TYPE_ATU    0xA1
-
 // Helpers: feature gates
 char _license[] SEC("license") = "Dual MIT/GPL";
 
