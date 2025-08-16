@@ -2,6 +2,15 @@
 
 ## Workflow
 - ATU = numer / denom
+```
+header tcp_atu_opt_t {
+    bit<8>  kind;     // 253
+    bit<8>  len;      // 10
+    bit<32> numer;
+    bit<32> denom;
+}
+
+```
 
 ### End-to-End Flow Summary
 ```
@@ -73,7 +82,7 @@ Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
           0x0040:  6433 fd0a 0000 2328 0000 2710 0101       d3....#(..'...
      ```
     - The 32-th word is 91f2 in tcpdump but i got 4284 in sk buffer in egress
-    - So my calculation will never be correct 
+    - Hence, my calculation at egress stage will never be correct.
     - commit 4473797d1cff55b31fa141450acba0be95a3c2fd
     - https://github.com/cytttt/Soze_Linux/blob/4473797d1cff55b31fa141450acba0be95a3c2fd/ebpf/atu_tcp_option_skeleton.c
 
