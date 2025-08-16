@@ -1,26 +1,7 @@
-// -----------------------------------------------------------------------------
-// Userspace attachment (example):
-//  tc qdisc add dev <RX_IF> clsact
-//  tc filter add dev <RX_IF>  ingress bpf da obj atu_tcp_option_skeleton.o sec tc/rx_ingress_cache_atu
-//  tc filter add dev <RX_IF>  egress  bpf da obj atu_tcp_option_skeleton.o sec tc/rx_egress_add_ack_opt
-//  tc qdisc add dev <TX_IF> clsact
-//  tc filter add dev <TX_IF>  ingress bpf da obj atu_tcp_option_skeleton.o sec tc/tx_ingress_parse_ack_opt
-//
-// Verify maps:
-//  bpftool map show
-//  bpftool map dump id <MAP_ID>
-//
-// Sender kernel module bridge:
-//  - Your CC module can read latest ATU via a small userspace daemon which polls
-//    sk_storage using libbpf and forwards (netlink/ioctl) into a per-socket table
-//    in the module. Alternatively, if your kernel exports sk_storage helpers for
-//    in-kernel consumers, read directly (version & symbol dependent).
-// -----------------------------------------------------------------------------
 // =====================================================================
-// Userspace daemon (libbpf) to forward ATU → kernel module
-// File: ccll_atu_daemon.c
-// Build: gcc -O2 -g -Wall ccll_atu_daemon.c -o ccll_atu_daemon -lbpf
-// Run:   ./ccll_atu_daemon --map /sys/fs/bpf/ack_atu_by_flow --dev /dev/ccll_ctl
+// ATU userspace daemon (libbpf) to mirror ACK ATU map -> kernel module
+// Build: gcc -O2 -g daemon/ccll_atu_daemon.c -o ccll_atu_daemon -lbpf
+// Run:   ./ccll_atu_daemon --map /sys/fs/bpf/tc/ack_atu_by_flow --dev /dev/ccll_ctl
 // =====================================================================
 
 #include <errno.h>
@@ -41,27 +22,31 @@
 
 struct flow4_key_user {
     uint32_t saddr; // network order
-    uint32_t daddr;
+    uint32_t daddr; // network order
     uint16_t sport; // network order
-    uint16_t dport;
+    uint16_t dport; // network order
     uint8_t  proto; // 6 = TCP
-    uint8_t  pad[3];
-};
-
-struct ccll_atu_msg {
-    struct flow4_key_user k; // 5-tuple
-    uint32_t numer;          // host order numerator
-    uint32_t denom;          // host order denominator
 };
 
 struct atu_value {
-    uint32_t numer;
-    uint32_t denom;
+    uint32_t numer; // host order
+    uint32_t denom; // host order
 };
 
-static volatile int stop;
+// Kernel-compatible structure for /dev/ccll_ctl communication
+struct ccll_ctl_update {
+    uint32_t saddr;    // network order (matches __be32)
+    uint32_t daddr;    // network order (matches __be32)
+    uint16_t sport;    // network order (matches __be16)
+    uint16_t dport;    // network order (matches __be16)
+    uint32_t numer;    // host order
+    uint32_t denom;    // host order
+    uint64_t timestamp; // in ns
+    uint32_t valid;    // validity flag
+};
 
-static void on_sigint(int sig) { (void)sig; stop = 1; }
+static volatile int g_stop = 0;
+static void on_sig(int sig) { (void)sig; g_stop = 1; }
 
 static void usage(const char *argv0) {
     fprintf(stderr,
@@ -69,14 +54,26 @@ static void usage(const char *argv0) {
         argv0);
 }
 
+static int get_map_info(int fd, __u32 *key_sz, __u32 *val_sz) {
+    struct bpf_map_info info;
+    __u32 len = sizeof(info);
+    memset(&info, 0, sizeof(info));
+    if (bpf_obj_get_info_by_fd(fd, &info, &len) < 0) {
+        return -1;
+    }
+    if (key_sz) *key_sz = info.key_size;
+    if (val_sz) *val_sz = info.value_size;
+    return 0;
+}
+
 int main(int argc, char **argv) {
-    const char *map_path = "/sys/fs/bpf/ack_atu_by_flow";
-    const char *dev_path = "/dev/ccll_ctl"; // your kernel module char device
+    const char *map_path = "/sys/fs/bpf/tc/ack_atu_by_flow";
+    const char *dev_path = "/dev/ccll_ctl";
     int interval_ms = 50;
 
     static struct option opts[] = {
-        {"map", required_argument, NULL, 'm'},
-        {"dev", optional_argument, NULL, 'd'},
+        {"map", required_argument,  NULL, 'm'},
+        {"dev", optional_argument,  NULL, 'd'},
         {"interval-ms", optional_argument, NULL, 'i'},
         {0, 0, 0, 0},
     };
@@ -91,8 +88,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    signal(SIGINT, on_sigint);
-    signal(SIGTERM, on_sigint);
+    signal(SIGINT, on_sig);
+    signal(SIGTERM, on_sig);
 
     libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
 
@@ -102,51 +99,89 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    __u32 map_key_sz = 0, map_val_sz = 0;
+    if (get_map_info(map_fd, &map_key_sz, &map_val_sz) < 0) {
+        fprintf(stderr, "bpf_obj_get_info_by_fd failed: %s\n", strerror(errno));
+        return 1;
+    }
+    if (map_key_sz != sizeof(struct flow4_key_user)) {
+        fprintf(stderr, "[warn] map key_size=%u differs from userspace struct=%zu (tail padding in kernel is normal). Will iterate with %u bytes and parse first %zu bytes.\n",
+                map_key_sz, sizeof(struct flow4_key_user), map_key_sz, sizeof(struct flow4_key_user));
+    }
+
+    void *cur_key_buf = calloc(1, map_key_sz ? map_key_sz : sizeof(struct flow4_key_user));
+    void *next_key_buf = calloc(1, map_key_sz ? map_key_sz : sizeof(struct flow4_key_user));
+    if (!cur_key_buf || !next_key_buf) {
+        fprintf(stderr, "calloc key buffers failed\n");
+        return 1;
+    }
+
     int dev_fd = open(dev_path, O_WRONLY | O_CLOEXEC);
     if (dev_fd < 0) {
         fprintf(stderr, "open(%s) failed: %s — will print to stdout instead.\n",
                 dev_path, strerror(errno));
     }
 
-    void *key = NULL, *next_key = NULL;
-    struct atu_value value = {0};
+    struct atu_value value;
+    int have_key = 0;
 
-    while (!stop) {
-        // Iterate the map once per loop
-        int r = bpf_map_get_next_key(map_fd, key, &next_key);
-        if (r < 0 && errno != ENOENT) {
-            fprintf(stderr, "get_next_key error: %s\n", strerror(errno));
-            // Small backoff
+    while (!g_stop) {
+        int err;
+        if (!have_key) {
+            err = bpf_map_get_next_key(map_fd, NULL, next_key_buf);
+        } else {
+            err = bpf_map_get_next_key(map_fd, cur_key_buf, next_key_buf);
+        }
+
+        if (err) {
+            if (errno != ENOENT) {
+                fprintf(stderr, "bpf_map_get_next_key: %s\n", strerror(errno));
+            }
+            have_key = 0;
             usleep(1000 * interval_ms);
             continue;
         }
-        if (r != 0) {
-            // No keys; sleep and restart
-            usleep(1000 * interval_ms);
-            key = NULL; next_key = NULL;
-            continue;
-        }
 
-        struct flow4_key_user k = {0};
-        memcpy(&k, &next_key, sizeof(k) < sizeof(next_key) ? sizeof(k) : sizeof(next_key));
-        // Lookup value
-        if (bpf_map_lookup_elem(map_fd, &next_key, &value) == 0) {
-            struct ccll_atu_msg msg = { .k = k, .numer = value.numer, .denom = value.denom };
+        memset(&value, 0, sizeof(value));
+        if (0 == bpf_map_lookup_elem(map_fd, next_key_buf, &value)) {
+            struct flow4_key_user fk;
+            memset(&fk, 0, sizeof(fk));
+            memcpy(&fk, next_key_buf, sizeof(fk)); // 只取前面這些欄位
+
             if (dev_fd >= 0) {
-                ssize_t w = write(dev_fd, &msg, sizeof(msg));
-                if (w < 0) fprintf(stderr, "write(/dev/ccll_ctl) failed: %s\n", strerror(errno));
+                // Create kernel-compatible structure
+                struct ccll_ctl_update kernel_msg = {
+                    .saddr = fk.saddr,
+                    .daddr = fk.daddr,
+                    .sport = fk.sport,
+                    .dport = fk.dport,
+                    .numer = value.numer,
+                    .denom = value.denom,
+                    .timestamp = 0, // Will be set by kernel if needed
+                    .valid = 1      // Mark as valid
+                };
+                ssize_t w = write(dev_fd, &kernel_msg, sizeof(kernel_msg));
+                if (w < 0) {
+                    fprintf(stderr, "write(%s) failed: %s\n", dev_path, strerror(errno));
+                }
             } else {
-                // Fallback: print CSV to stdout
                 printf("%u,%u,%u,%u,%u,%u,%u\n",
-                       k.saddr, k.daddr, k.sport, k.dport, k.proto,
-                       msg.numer, msg.denom);
+                       fk.saddr, fk.daddr,
+                       fk.sport, fk.dport,
+                       fk.proto, value.numer, value.denom);
                 fflush(stdout);
             }
         }
-        key = next_key; // continue iteration
+
+        memcpy(cur_key_buf, next_key_buf, map_key_sz);
+        have_key = 1;
     }
 
     if (dev_fd >= 0) close(dev_fd);
     close(map_fd);
+
+    free(cur_key_buf);
+    free(next_key_buf);
+
     return 0;
 }

@@ -107,14 +107,20 @@ attach-send: ebpf
 	sudo $(NS_SEND) tc qdisc add dev $(SEND_IF) clsact 2>/dev/null || true
 	sudo $(NS_SEND) tc filter add dev $(SEND_IF) ingress bpf da obj $(EBPF_TX_OBJ) sec tc/tx_ingress_parse_ack_opt || true
 
-pin:
-	# Ensure bpffs exists in the chosen namespace (sender side by default)
-	sudo $(NS_SEND) sh -c 'mkdir -p /sys/fs/bpf; mount -t bpf bpf /sys/fs/bpf 2>/dev/null || true'
-	# Load eBPF object and pin maps inside the namespace
-	sudo $(NS_SEND) $(BPFTOOL) prog loadall $(EBPF_TX_OBJ) /sys/fs/bpf/$(PKG_NAME) || true
-	sudo $(NS_SEND) $(BPFTOOL) map pin id $(shell sudo $(NS_SEND) $(BPFTOOL) map show | grep -m1 ack_atu_by_flow | awk '{print $$1}') /sys/fs/bpf/ack_atu_by_flow || true
-	# sk_atu_store is optional; this will be a no-op if SEND_USE_SK_STORAGE=0
-	sudo $(NS_SEND) $(BPFTOOL) map pin id $(shell sudo $(NS_SEND) $(BPFTOOL) map show | grep -m1 sk_atu_store   | awk '{print $$1}') /sys/fs/bpf/sk_atu_store   || true
+pin: ebpf
+	# Mount bpffs globally (host mount ns), prepare directories
+	sudo sh -lc 'mkdir -p /sys/fs/bpf; mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf; mkdir -p /sys/fs/bpf/tc'
+	# Load RX/TX objects once to global bpffs; libbpf will auto-pin each program under the target dir
+	sudo $(BPFTOOL) prog loadall $(EBPF_RX_OBJ) /sys/fs/bpf/atu_rx type classifier 2>/dev/null || true
+	sudo $(BPFTOOL) prog loadall $(EBPF_TX_OBJ) /sys/fs/bpf/atu_tx type classifier 2>/dev/null || true
+	# Pin shared maps (rx_flow_atu, ack_atu_by_flow); optional sk_atu_store if present
+	-@MID=$$(sudo $(BPFTOOL) map show | awk '/[[:space:]]name[[:space:]]rx_flow_atu[[:space:]]/{print $$1; exit}' | tr -d :) ; \
+	  if [ -n "$$MID" ]; then sudo $(BPFTOOL) map pin id $$MID /sys/fs/bpf/tc/rx_flow_atu; fi
+	-@MID=$$(sudo $(BPFTOOL) map show | awk '/[[:space:]]name[[:space:]]ack_atu_by_flow[[:space:]]/{print $$1; exit}' | tr -d :) ; \
+	  if [ -n "$$MID" ]; then sudo $(BPFTOOL) map pin id $$MID /sys/fs/bpf/tc/ack_atu_by_flow; fi
+	-@MID=$$(sudo $(BPFTOOL) map show | awk '/[[:space:]]name[[:space:]]sk_atu_store[[:space:]]/{print $$1; exit}' | tr -d :) ; \
+	  if [ -n "$$MID" ]; then sudo $(BPFTOOL) map pin id $$MID /sys/fs/bpf/tc/sk_atu_store; fi
+	@echo "[pin] programs pinned under /sys/fs/bpf/atu_{rx,tx}; maps pinned under /sys/fs/bpf/tc"
 
 pin-recv: pin
 pin-send: pin
@@ -183,5 +189,35 @@ dkms-reinstall: dkms-remove dkms-add dkms-build dkms-install
 install: dkms-install
 
 uninstall: dkms-remove
+
+# Mount/unmount global bpffs helpers
+bpffs-mount:
+	sudo sh -lc 'mkdir -p /sys/fs/bpf; mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf; mkdir -p /sys/fs/bpf/tc'
+bpffs-umount:
+	sudo sh -lc 'mountpoint -q /sys/fs/bpf && umount /sys/fs/bpf || true'
+
+# Attach using pinned programs (no netns)
+attach-recv-pinned:
+	sudo tc qdisc add dev $(RECV_IF) clsact 2>/dev/null || true
+	sudo tc filter add dev $(RECV_IF) ingress pref 10 bpf da pinned /sys/fs/bpf/atu_rx/classifier_rx_ingress_cache_atu || true
+	sudo tc filter add dev $(RECV_IF) egress  pref 10 bpf da pinned /sys/fs/bpf/atu_rx/classifier_rx_egress_add_ack_opt || true
+
+attach-send-pinned:
+	sudo tc qdisc add dev $(SEND_IF) clsact 2>/dev/null || true
+	sudo tc filter add dev $(SEND_IF) ingress pref 10 bpf da pinned /sys/fs/bpf/atu_tx/classifier_tx_ingress_parse_ack_opt || true
+
+attach-pinned: attach-recv-pinned attach-send-pinned
+
+# Unpin from global bpffs (does not detach tc)
+unpin:
+	-sudo rm -f /sys/fs/bpf/tc/rx_flow_atu /sys/fs/bpf/tc/ack_atu_by_flow /sys/fs/bpf/tc/sk_atu_store
+	-sudo rm -f /sys/fs/bpf/atu_rx/classifier_rx_ingress_cache_atu /sys/fs/bpf/atu_rx/classifier_rx_egress_add_ack_opt
+	-sudo rm -f /sys/fs/bpf/atu_tx/classifier_tx_ingress_parse_ack_opt
+
+# Show globally pinned stuff
+status-global:
+	@echo "[bpffs] mount:" ; mount | grep ' on /sys/fs/bpf type bpf' || true
+	@echo "[bpffs] pinned program dirs:" ; ls -l /sys/fs/bpf/atu_rx /sys/fs/bpf/atu_tx 2>/dev/null || true
+	@echo "[bpffs] pinned maps:" ; ls -l /sys/fs/bpf/tc 2>/dev/null || true
 
 endif
