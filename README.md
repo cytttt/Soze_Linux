@@ -5,7 +5,7 @@
 
 ### End-to-End Flow Summary
 ```
-Sender ──DATA──> P4 Switch ──DATA+ATU──> Receiver
+Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
    ↑                                         ↓
    │                                    Cache ATU
    │                                         ↓
@@ -77,4 +77,6 @@ Sender ──DATA──> P4 Switch ──DATA+ATU──> Receiver
      - condition too complex, limit of 4 bytes + 12 bits of PHV input exceeded
      - condition too complex, one operand must be constant
      - Hence, I just sent the `atu_numer` and the `atu_denom` to end host without comparison.
-- P4 how to handle other options in forward packet
+- P4 handle other options in forward packet
+     - e.g. `[nop,nop,TS val 3492583381 ecr 3609098932]`
+
