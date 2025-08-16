@@ -133,3 +133,33 @@ Runs on the sender's ingress path to parse ATU information from incoming ACK pac
 - **Timing issue**: Howwvr ,teh  TSineinal TCP othp origs als modified afi egress prog checksum calculation atmaks stineffective
 
 - **Why not use BPF_F_RECOMPUTE_CSUM**: The `bpf_skb_store_bytes()` function with `BPF_F_RECOMPUTE_CSUM` flag only adjusts the checksum for the impact of the newly stored bytes. However, as mentioned earlier, the original checksum field in the socket buffer is already incorrect. Since we need to manually zero out the checksum and include the pseudo header and TCP header in the calculation anyway, using the flag provides no convenience. Additionally, calculating all checksums within the same program section makes debugging more straightforward.
+
+
+## p4
+
+### CcllIngressParser
+Parses Ethernet, IPv4 (with checksum verification), and transport headers.  
+For TCP, it checks the data offset and extracts a custom ATU (kind = 253, len = 10) option,  
+along with its 2-byte NOP padding for alignment.
+
+### CcllEgress
+Implements the CCLL congestion-control logic:
+- Smooths rate and queue depth with LPFs  
+- Calculates ATU numerator = `(rate_out + queue_diff) << 3`  
+- Calculates denominator = `(queue_out << 4) + (queue_out << 3) + queue_out`  
+- Injects ATU option into TCP ACKs, updates IP/TCP lengths, and adds 2-byte NOP padding
+
+
+### CcllEgressDeparser
+Rebuilds the packet and updates checksums:
+- Recomputes IPv4 checksum after length changes  
+- Applies incremental TCP checksum updates for inserted option bytes  
+- Emits headers in order: Ethernet → IPv4 → TCP/UDP → extra headers
+
+### Implementation Notes
+On Tofino, complex arithmetic in a single action can exceed PHV or constant-operand limits.  
+This required splitting computations across multiple small table actions in egress,  
+which made the design harder to maintain and debug.
+- Large calculations or multi-field comparisons often fail compilation.  
+- Break complex math into multiple stages with small table actions.  
+- Do not reuse temp variables. Use different variables, and clear it after use. Separate their lifetimes.

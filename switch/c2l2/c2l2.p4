@@ -75,7 +75,7 @@ Lpf<bit<32>, bit<10>>(1) lpf_queue;
 // ---------------------------------------------------------------------------
 // Ingress parser
 // ---------------------------------------------------------------------------
-parser SwitchIngressParser(
+parser CcllIngressParser(
         packet_in pkt,
         out header_t hdr,
         out metadata_t ig_md,
@@ -509,7 +509,7 @@ control CcllEgressDeparser<H, M>(
     }
 }
 
-Pipeline(SwitchIngressParser(),
+Pipeline(CcllIngressParser(),
          SwitchIngress(),
          SwitchIngressDeparser(),
          MyEgressParser(),
