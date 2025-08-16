@@ -28,9 +28,11 @@ sudo apt-get install -y clang llvm bpftool make gcc libbpf-dev iproute2 net-tool
 
 ---
 
-## local test
+## local test on CC
+
 
 ```
+cd linux
 make all ATU_TEST_MODE=1
 bash clean.bash
 bash setup.bash
