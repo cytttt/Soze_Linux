@@ -81,7 +81,7 @@ Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
           0x0030:  01f6 72ce 0000 0101 080a cfdc 8154 91f2  ..r..........T..
           0x0040:  6433 fd0a 0000 2328 0000 2710 0101       d3....#(..'...
      ```
-    - The 32-th word is 91f2 in tcpdump but i got 4284 in sk buffer in egress
+    - The 32-th word (higher word of `TSecr`) is **91f2** in tcpdump but i got **4284** in sk buffer at egress stage.
     - Hence, my calculation at egress stage will never be correct.
     - commit 4473797d1cff55b31fa141450acba0be95a3c2fd
     - https://github.com/cytttt/Soze_Linux/blob/4473797d1cff55b31fa141450acba0be95a3c2fd/ebpf/atu_tcp_option_skeleton.c
