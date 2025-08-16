@@ -2,20 +2,8 @@
 
 This guide shows how to build and run the ATU signal path end‑to‑end on a single host using Linux network namespaces.
 
-Flow goal:
-```
-sender  --DATA-->  receiver  --ACK+ATU(Kind=253,Len=10,numer,denom,NOP,NOP)-->  sender
-```
 
-The eBPF side is split into two objects:
-- **RX object (`ebpf/atu_rx.o`)**: receiver ingress cache + receiver egress insert
-- **TX object (`ebpf/atu_tx.o`)**: sender ingress parse + per‑socket/per‑flow mirrors
-
-> Why two objects? Some kernels reject `BPF_MAP_TYPE_SK_STORAGE` at tc attach time. RX doesn’t need `sk_storage`, TX does. Splitting avoids `EINVAL` on the receiver.
-
----
-
-## 0) Prerequisites
+## Prerequisites
 - Linux 4.5+ (tc `clsact`) — 5.x recommended
 - Tools: `clang`, `bpftool`, `iproute2 (tc)`, `gcc`, `libbpf-dev`
 - Root privileges (`sudo`)
@@ -28,7 +16,7 @@ sudo apt-get install -y clang llvm bpftool make gcc libbpf-dev iproute2 net-tool
 
 ---
 
-## local test on CC
+## Local test on ebpf
 
 
 ```
@@ -89,7 +77,3 @@ bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 # check sender side map
 bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ```
-
-## issues
-
-- I cannot adjust cksum at egress since the TSecr in skb will later be modified.

@@ -101,3 +101,35 @@ Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
 - P4 handle other options in forward packet
      - e.g. `[nop,nop,TS val 3492583381 ecr 3609098932]`
 
+## ebpf
+### `classifier/rx_ingress_cache_atu`
+Runs on the receiver's ingress path to extract and cache ATU (Adaptive Transmission Unit) information from incoming TCP data packets. It:
+     - Parses incoming TCP packets for ATU options (Kind=253, Length=10) in the TCP header
+     - Extracts ATU numerator and denominator values from the option payload
+     - Caches the ATU values per-flow in the rx_flow_atu BPF map using a 5-tuple flow key
+### `classifier/rx_egress_add_ack_opt`
+Runs on the receiver's egress path to inject ATU information into outgoing pure ACK packets. It:
+     - Identifies pure ACK packets (ACK flag set, no payload, no other TCP flags)
+     - Looks up cached ATU values from the rx_flow_atu map using the reverse flow key
+     - Dynamically adds a TCP option (Kind=253, Length=10) containing the ATU numerator and denominator
+     - Adjusts TCP header length and packet checksums to accommodate the new option
+
+
+### `tc/tx_ingress_parse_ack_opt`
+Runs on the sender's ingress path to parse ATU information from incoming ACK packets. It:
+     - Processes incoming ACK packets and scans TCP options for ATU data (Kind=253)
+     - Extracts ATU numerator and denominator values from the TCP option payload
+     - Stores the parsed ATU values in the ack_atu_by_flow BPF map using the flow 5-tuple as key
+
+### Setup Notes
+- **Shared map requirement**: Both receiver-side programs must be loaded **at the same time** and from the same `.o` object file (`atu_rx.o`) to share the same `rx_flow_atu` map instance. Loading from the same object files with `sec` would create duplicate maps, preventing proper data sharing between the ingress cache and egress injection programs.
+- **Section naming**: Programs use `classifier/` prefix instead of `tc/` because the `bpftool` on this machine only recognizes `classifier` as a valid keyword to parse `.o` (`bpftool prog loadall ebpf/atu_rx.o /sys/fs/bpf/atu_rx`)
+
+### Receiver Side Implementation Notes
+- **Option insertion**: Use `bpf_skb_adjust_room()` to insert 12 bytes for the new TCP option between L3 and L4 headers in the socket buffer, then shift the original headers and options forward by 12 bytes and append the ATU data to the end of the existing options.
+
+- **Checksum handling**: Cannot directly use `bpf_l4_csum_replace()` to update L4 checksum because the checksum value in the socket buffer is a fixed number rather than the original packet checksum. The solution is to zero out the checksum field first, then recalculate the entire checksum from scratch including pseudo header, TCP header, and options using `bpf_csum_diff()` and `bpf_skb_store_bytes()`. 
+
+- **Timing issue**: Howwvr ,teh  TSineinal TCP othp origs als modified afi egress prog checksum calculation atmaks stineffective
+
+- **Why not use BPF_F_RECOMPUTE_CSUM**: The `bpf_skb_store_bytes()` function with `BPF_F_RECOMPUTE_CSUM` flag only adjusts the checksum for the impact of the newly stored bytes. However, as mentioned earlier, the original checksum field in the socket buffer is already incorrect. Since we need to manually zero out the checksum and include the pseudo header and TCP header in the calculation anyway, using the flag provides no convenience. Additionally, calculating all checksums within the same program section makes debugging more straightforward.

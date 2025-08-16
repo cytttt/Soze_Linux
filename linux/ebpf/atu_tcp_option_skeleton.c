@@ -513,7 +513,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     __u32 tcp_t0 = ip_off + ihl_bytes;            /* original L4 start */
     __u32 tcp_t1 = tcp_t0 + ATU_WIRE_BYTES;       /* shifted L4 start  */
     bpf_printk("AFT SET T0=%u T1=%u\n", tcp_t0, tcp_t1);
-    // ========== AFT1：adjust_room 之後，T1 =============
+    // ========== AFT1: After adjust_room, T1 =============
     if (bpf_skb_load_bytes(skb, tcp_t1 + 28, &w28, 2) == 0 &&
         bpf_skb_load_bytes(skb, tcp_t1 + 30, &w30, 2) == 0) {
         bpf_printk("AFT1 w28=%x\n", (__u32)w28);

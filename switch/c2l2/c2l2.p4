@@ -128,7 +128,7 @@ parser SwitchIngressParser(
         pkt.extract(hdr.tcp);
 
         transition select (hdr.tcp.data_offset) {
-            // data_offset(32b words) > 5 代表有 options
+            // data_offset(32b words) > 5 implies options
             4w6:  parse_tcp_opt_check;
             4w7:  parse_tcp_opt_check;
             4w8:  parse_tcp_opt_check;
