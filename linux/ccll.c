@@ -401,72 +401,35 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
     struct tcp_sock *tp = tcp_sk(sk);
     struct ccllcc *ca = inet_csk_ca(sk);
+    u32 cwnd_target = max_t(u32, (u32)(ca->cwndx10e3 / 1000ULL), 2U);
+    u32 inflight = tcp_packets_in_flight(tp);
+
+    if (!tcp_is_cwnd_limited(sk)) {
+        if (tp->snd_cwnd < cwnd_target)
+            tp->snd_cwnd = cwnd_target;
+        pr_info_ratelimited("ccll: cong_avoid (not-limited) cwnd=%u inflight=%u target=%u\n",
+                            tp->snd_cwnd, inflight, cwnd_target);
+        return;
+    }
+
+    if (tp->snd_cwnd < cwnd_target)
+        tp->snd_cwnd = cwnd_target;
+
+    pr_info_ratelimited("ccll: cong_avoid (limited) cwnd=%u inflight=%u target=%u\n",
+                        tp->snd_cwnd, inflight, cwnd_target);
+}
+
+static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
+{
+    struct ccllcc *ca = inet_csk_ca(sk);
+    struct tcp_sock *tp = tcp_sk(sk);
+    struct inet_sock *inet = inet_sk(sk);
     u32 rtt;
     u32 atu;
     u64 update;
     u32 cwnd;
     u64 per_pkt_update;
-
-    if (!tcp_is_cwnd_limited(sk)) {
-        pr_info("ccll: cong_avoid skip: not cwnd-limited "
-                "(cwnd=%u, inflight=%u, acked=%u)\n",
-                tp->snd_cwnd, tcp_packets_in_flight(tp), acked);
-        return;
-    }
-
-    pr_info("ccll: cong_avoid enter (cwnd=%u, ssthresh=%u, inflight=%u, acked=%u)\n",
-            tp->snd_cwnd, tp->snd_ssthresh, tcp_packets_in_flight(tp), acked);
-
-    // Get current RTT
-    rtt = ca->curr_rtt;
-    if (rtt == 0)
-        rtt = 1;
-
-    // Always get latest ATU; do not fallback to cached max_atu
-    lookup_atu_from_header(sk, &atu);
-    ca->max_atu = atu;
-
-    // C2L2 Algorithm: Calculate update based on ATU
-    if (atu < atu_frac_lb) {
-        update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_fraction / k_p_scale);
-    }
-    else if (atu >= atu_frac_lb && atu <= atu_frac_lb + atu_frac_range) {
-        update = exp_approx(
-            (ln10e5_max_rate
-                - log_approx(ca->rate_kbps * FPS)
-                + log_approx(exp_approx((ln10e5_min_rate - ln10e5_max_rate) * (atu - atu_frac_lb) / atu_frac_range) * FPS)
-            ) * k_p_fraction / k_p_scale);
-    }
-    else if (atu > atu_frac_lb + atu_frac_range && atu <= atu_scale) {
-        update = exp_approx(
-            (ln10e5_min_rate
-                - log_approx(ca->rate_kbps * FPS)
-                + log_approx((atu_scale - atu) * FPS / (atu_scale - atu_frac_lb - atu_frac_range))
-            ) * k_p_fraction / k_p_scale);
-    } else {
-        update = FPS;
-    }
-
-    // Calculate cwnd from current rate
-    cwnd = (ca->rate_kbps * rtt) / (1500 * 8 * 1000);
-    if (cwnd == 0) cwnd = 1;
-
-    // Calculate per_packet_update
-    per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
-
-    // Update rate
-    ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
-
-    // Set new congestion window
-    tp->snd_cwnd = max_t(u32, (ca->rate_kbps * rtt) / (1500 * 8 * 1000), 2U);
-    pr_info("ccll: cong avoid leave\n");
-}
-
-static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
-    struct ccllcc *ca = inet_csk_ca(sk);
-    struct tcp_sock *tp = tcp_sk(sk);
-    struct inet_sock *inet = inet_sk(sk);
-    u32 rtt;
+    u32 cwnd_target;
 
     /* Log incoming ACK sample (even duplicates will be filtered below) */
     pr_info_ratelimited("ccll: pkts_acked pre rtt_us=%d inflight=%d s=%pI4:%u -> d=%pI4:%u cwnd=%u\n",
@@ -479,25 +442,47 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
     if (sample->rtt_us < 0)
         return;
 
-    /* Update RTT measurements */
-    rtt = sample->rtt_us;
-    if (rtt == 0)
-        rtt = 1;
-    
+    // Update RTT
+    rtt = (sample->rtt_us > 0) ? sample->rtt_us : 1;
     ca->curr_rtt = rtt;
-    
-    /* Update min_rtt */
     if (ca->min_rtt == 0 || rtt < ca->min_rtt)
         ca->min_rtt = rtt;
+
     
-    /* Initialize rate_kbps if not set */
-    if (ca->rate_kbps == 0) {
-        ca->rate_kbps = (tp->snd_cwnd * 1500 * 8 * 1000) / rtt;
+    if (ca->rate_kbps == 0)
+        ca->rate_kbps = max_t(u64, (tp->snd_cwnd * 1500ULL * 8ULL * 1000ULL) / rtt, 1ULL);
+
+    lookup_atu_from_header(sk, &atu);
+    ca->max_atu = atu;
+
+    if (atu < atu_frac_lb) {
+        update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_fraction / k_p_scale);
+    } else if (atu >= atu_frac_lb && atu <= atu_frac_lb + atu_frac_range) {
+        update = exp_approx(
+            (ln10e5_max_rate
+                - log_approx(ca->rate_kbps * FPS)
+                + log_approx(exp_approx((ln10e5_min_rate - ln10e5_max_rate) * (atu - atu_frac_lb) / atu_frac_range) * FPS)
+            ) * k_p_fraction / k_p_scale);
+    } else if (atu > atu_frac_lb + atu_frac_range && atu <= atu_scale) {
+        update = exp_approx(
+            (ln10e5_min_rate
+                - log_approx(ca->rate_kbps * FPS)
+                + log_approx((atu_scale - atu) * FPS / (atu_scale - atu_frac_lb - atu_frac_range))
+            ) * k_p_fraction / k_p_scale);
+    } else {
+        update = FPS;
     }
 
-    pr_info_ratelimited("ccll: pkts_acked post rtt_us=%u min_rtt=%u cwnd=%u rate_kbps=%llu\n",
-                        ca->curr_rtt, ca->min_rtt, tp->snd_cwnd,
-                        (unsigned long long)ca->rate_kbps);
+    cwnd = (u32)max_t(u64, (ca->rate_kbps * rtt) / (1500ULL * 8ULL * 1000ULL), 1ULL);
+    per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
+    ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
+
+    cwnd_target = max_t(u32, (u32)((ca->rate_kbps * rtt) / (1500ULL * 8ULL * 1000ULL)), 2U);
+    ca->cwndx10e3 = (u64)cwnd_target * 1000ULL;
+
+    pr_info_ratelimited("ccll: pkts_acked post rtt_us=%u min_rtt=%u atu=%u rate_kbps=%llu cwnd_target=%u\n",
+                        ca->curr_rtt, ca->min_rtt, ca->max_atu,
+                        (unsigned long long)ca->rate_kbps, cwnd_target);
 }
 
 static struct tcp_congestion_ops ccll __read_mostly = {
