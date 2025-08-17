@@ -199,9 +199,8 @@ static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event ev) {
                         tp->snd_cwnd, tp->snd_ssthresh);
     
     switch (ev) {
-    case CA_EVENT_CWND_RESTART:
-    case CA_EVENT_COMPLETE_CWR:
     case CA_EVENT_LOSS:
+    case CA_EVENT_CWND_RESTART:
         ccllcc_reset(ca);
         pr_info_ratelimited("ccll: cwnd_event reset done (ev=%d)\n", (int)ev);
         break;
@@ -362,12 +361,17 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 
     // If no ATU or not valid, return default constant (do not create dummy entry)
     if (!atu_info || !atu_info->valid) {
+        pr_info_ratelimited("ccll: ATU fallback -> 8000 (enabled=%d have_info=%d valid=%d)\n",
+                            atu_enabled ? 1 : 0,
+                            atu_info ? 1 : 0,
+                            atu_info ? atu_info->valid : 0);
         *atu_value = 8000; // 80% default
         return 0;
     }
 
     // Check if ATU is enabled
     if (!atu_enabled) {
+        pr_info_ratelimited("ccll: ATU disabled -> fallback 8000\n");
         *atu_value = 8000;
         return 0;
     }
@@ -377,12 +381,17 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // ms to ns
     if (atu_info->timestamp &&
         (current_time - atu_info->timestamp) > timeout_ns) {
+        pr_info_ratelimited("ccll: ATU stale -> fallback 8000 (age=%llums, timeout=%ums)\n",
+                            (unsigned long long)((current_time - atu_info->timestamp) / 1000000ULL),
+                            atu_timeout_ms);
         *atu_value = 8000;
         return 0;
     }
 
     // Validate denominator
     if (atu_info->denom == 0) {
+        pr_info_ratelimited("ccll: ATU invalid denom=0 -> fallback 8000 (numer=%u)\n",
+                            atu_info->numer);
         *atu_value = 8000;
         return 0;
     }
@@ -393,6 +402,7 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     } else if (scaled_atu > atu_scale) {
         scaled_atu = atu_scale;
     }
+    pr_info_ratelimited("ccll: ATU ok scaled=%u (n=%u d=%u)\n", scaled_atu, atu_info->numer, atu_info->denom)
     *atu_value = scaled_atu;
     return 0;
 }
@@ -444,13 +454,18 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
 
     // Update RTT
     rtt = (sample->rtt_us > 0) ? sample->rtt_us : 1;
+    if (rtt > 1000000)
+        rtt = 1000000;
     ca->curr_rtt = rtt;
     if (ca->min_rtt == 0 || rtt < ca->min_rtt)
         ca->min_rtt = rtt;
 
     
-    if (ca->rate_kbps == 0)
-        ca->rate_kbps = max_t(u64, (tp->snd_cwnd * 1500ULL * 8ULL * 1000ULL) / rtt, 1ULL);
+    if (ca->rate_kbps == 0) {
+        ca->rate_kbps = max_t(u64,
+            (tcp_sk(sk)->snd_cwnd * 1500ULL * 8ULL * 1000ULL) / rtt,
+            1ULL);
+    }
 
     lookup_atu_from_header(sk, &atu);
     ca->max_atu = atu;
