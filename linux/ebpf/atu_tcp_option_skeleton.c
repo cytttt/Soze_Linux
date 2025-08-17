@@ -543,7 +543,6 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         if (doff_bytes > 60) return BPF_OK; /* defensive */
         __u8 tcp_copy[60] = {0};
         /* Read old header from T1 into tcp_copy */
-        #pragma clang loop unroll(full)
         for (int i = 0; i < 60; i++) {
             if ((__u32)i >= doff_bytes)
                 break;
@@ -561,7 +560,6 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             bpf_printk("DBG T1 w28=%x w30=%x\n", (__u32)t1w28, (__u32)t1w30);
         }
         /* Write snapshot to T0 */
-        #pragma clang loop unroll(full)
         for (int i = 0; i < 60; i++) {
             if ((__u32)i >= doff_bytes)
                 break;

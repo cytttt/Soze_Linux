@@ -200,15 +200,16 @@ static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event ev) {
     
     switch (ev) {
     case CA_EVENT_LOSS:
-        ccllcc_reset(ca);
-        pr_info_ratelimited("ccll: cwnd_event reset done (ev=%d)\n", (int)ev);
+        // ccllcc_reset(ca);
+        pr_info_ratelimited("ccll: cwnd_event LOSS observed (ev=%d) — keeping state\n", (int)ev);
+    ca->cwndx10e3 = max_t(u64, ca->cwndx10e3, (u64)tcp_sk(sk)->snd_cwnd * 1000ULL);
         break;
     case CA_EVENT_CWND_RESTART: {
         u32 target = max_t(u32, (u32)(ca->cwndx10e3 / 1000ULL), 2U);
         if (tp->snd_cwnd < target)
             tp->snd_cwnd = target;
-        pr_info_ratelimited("ccll: cwnd_event restart (keep cwnd=%u, target=%u)\n",
-                            tp->snd_cwnd, target);
+        pr_info_ratelimited("ccll: cwnd_event restart (set floor, target=%u, cwnd=%u)\n",
+                target, tp->snd_cwnd);
         break;
     }
     default:
@@ -387,10 +388,9 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // ms to ns
     if (atu_info->timestamp &&
         (current_time - atu_info->timestamp) > timeout_ns) {
-        pr_info_ratelimited("ccll: ATU stale (age=%llums, timeout=%ums)\n",
+        pr_info_ratelimited("ccll: ATU present but stale by %llums (timeout=%ums) — using it anyway\n",
                             (unsigned long long)((current_time - atu_info->timestamp) / 1000000ULL),
                             atu_timeout_ms);
-        return -ETIMEDOUT;
     }
 
     if (atu_info->denom == 0) {
