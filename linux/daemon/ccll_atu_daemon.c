@@ -116,8 +116,7 @@ static void usage(const char *argv0) {
             "  --dev          Path to char device (default: /dev/ccll_ctl)\n"
             "  --interval-ms  Poll interval in milliseconds (default: 50)\n"
             "  --no-flip      Do NOT flip direction (by default the daemon flips\n"
-            "                 10.0.0.1:5000->10.0.0.2:ephem to 10.0.0.2:ephem->10.0.0.1:5000)\n"
-            "  (debounce)     Identical (key,value) writes are throttled to one per 500ms.\n",
+            "                 10.0.0.1:5000->10.0.0.2:ephem to 10.0.0.2:ephem->10.0.0.1:5000)\n",
             argv0);
 }
 
@@ -264,13 +263,13 @@ int main(int argc, char **argv) {
                 int idx = cache_find(&k);
                 int should_send = 0;
                 if (idx < 0) {
-                    should_send = 1;                 // first time seeing this key
+                    // First time seeing this key: send once to seed kernel
+                    should_send = 1;
                     idx = cache_place(&k);
                 } else {
+                    // Only send when numer/denom actually change
                     if (!val_eq(&g_cache[idx].val, &value))
-                        should_send = 1;             // value changed
-                    else if (ts_ns - g_cache[idx].last_sent_ns >= RESEND_NS)
-                        should_send = 1;             // periodic refresh
+                        should_send = 1;
                 }
 
                 if (should_send) {
@@ -315,7 +314,6 @@ int main(int argc, char **argv) {
                     // Update cache slot
                     g_cache[idx].key = k;
                     g_cache[idx].val = value;
-                    g_cache[idx].last_sent_ns = ts_ns;
                     g_cache[idx].in_use = 1;
                 }
             }

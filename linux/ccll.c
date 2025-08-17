@@ -49,11 +49,11 @@ static u32 __maybe_unused delay_scale __read_mostly = 8000;        // us
 #define FPS 100000ULL
 // K_p = 0.1
 static u32 k_p_scale __read_mostly = 100;
-static u32 k_p_fraction __read_mostly = 10;  /* Kp = 0.10 = k_p_fraction / k_p_scale */
+static u32 k_p_fraction __read_mostly = 20;  /* Kp = 0.10 = k_p_fraction / k_p_scale */
 
 static u32 atu_scale __read_mostly = 10000;
-static u32 atu_frac_lb __read_mostly = 9200; // X
-static u32 atu_frac_range __read_mostly = 500; // Y
+static u32 atu_frac_lb __read_mostly = 8500; // X
+static u32 atu_frac_range __read_mostly = 1000; // Y
 
 static u32 __maybe_unused ccll_weight __read_mostly = 1;
 
