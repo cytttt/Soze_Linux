@@ -352,6 +352,7 @@ static struct atu_state *try_get_atu_from_bpf(struct sock *sk)
 // Function to retrieve ATU from SK_STORAGE or per-flow hash table
 static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 {
+    pr_infol("ccll: lookup atu from header enter\n");
     struct atu_state *atu_info;
     u32 scaled_atu;
     u64 current_time;
@@ -398,7 +399,6 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 
 static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
-    pr_info("ccll: cong avoid enter \n");
     struct tcp_sock *tp = tcp_sk(sk);
     struct ccllcc *ca = inet_csk_ca(sk);
     u32 rtt;
@@ -407,8 +407,15 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
     u32 cwnd;
     u64 per_pkt_update;
 
-    if (!tcp_is_cwnd_limited(sk))
+    if (!tcp_is_cwnd_limited(sk)) {
+        pr_info("ccll: cong_avoid skip: not cwnd-limited "
+                "(cwnd=%u, inflight=%u, acked=%u)\n",
+                tp->snd_cwnd, tcp_packets_in_flight(tp), acked);
         return;
+    }
+
+    pr_info("ccll: cong_avoid enter (cwnd=%u, ssthresh=%u, inflight=%u, acked=%u)\n",
+            tp->snd_cwnd, tp->snd_ssthresh, tcp_packets_in_flight(tp), acked);
 
     // Get current RTT
     rtt = ca->curr_rtt;
