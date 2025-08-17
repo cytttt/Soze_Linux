@@ -20,6 +20,8 @@
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 
+// Structure representing the key format expected from the BPF map for IPv4 flows.
+// Contains source/destination addresses and ports, and protocol number.
 struct flow4_key_user {
     uint32_t saddr; // network order
     uint32_t daddr; // network order
@@ -28,12 +30,15 @@ struct flow4_key_user {
     uint8_t  proto; // 6 = TCP
 };
 
+// Structure representing the value stored in the ATU map.
+// Contains numerator and denominator values in host byte order.
 struct atu_value {
     uint32_t numer; // host order
     uint32_t denom; // host order
 };
 
-// Kernel-compatible structure for /dev/ccll_ctl communication
+// Kernel-compatible structure for /dev/ccll_ctl communication.
+// This structure mirrors the flow key and value data to the kernel device.
 struct ccll_ctl_update {
     uint32_t saddr;    // network order (matches __be32)
     uint32_t daddr;    // network order (matches __be32)
@@ -46,14 +51,17 @@ struct ccll_ctl_update {
 };
 
 static volatile int g_stop = 0;
+// Signal handler to catch termination signals (SIGINT, SIGTERM) and set stop flag.
 static void on_sig(int sig) { (void)sig; g_stop = 1; }
 
+// Prints usage information for the daemon.
 static void usage(const char *argv0) {
     fprintf(stderr,
         "Usage: %s --map <pinned_map_path> [--dev /dev/ccll_ctl] [--interval-ms 50]\n",
         argv0);
 }
 
+// Helper function to fetch BPF map key and value sizes given a map file descriptor.
 static int get_map_info(int fd, __u32 *key_sz, __u32 *val_sz) {
     struct bpf_map_info info;
     __u32 len = sizeof(info);
@@ -67,48 +75,65 @@ static int get_map_info(int fd, __u32 *key_sz, __u32 *val_sz) {
 }
 
 int main(int argc, char **argv) {
+    // Default paths and interval
     const char *map_path = "/sys/fs/bpf/tc/ack_atu_by_flow";
     const char *dev_path = "/dev/ccll_ctl";
     int interval_ms = 50;
 
+    // Command line options definition
     static struct option opts[] = {
         {"map", required_argument,  NULL, 'm'},
-        {"dev", optional_argument,  NULL, 'd'},
+        {"dev", required_argument,  NULL, 'd'},
         {"interval-ms", optional_argument, NULL, 'i'},
         {0, 0, 0, 0},
     };
 
+    // Parse command line arguments
     int c;
     while ((c = getopt_long(argc, argv, "m:d:i:", opts, NULL)) != -1) {
         switch (c) {
         case 'm': map_path = optarg; break;
-        case 'd': dev_path = optarg; break;
+        case 'd':
+            if (optarg && optarg[0])
+                dev_path = optarg;
+            break;
         case 'i': interval_ms = atoi(optarg); break;
         default: usage(argv[0]); return 1;
         }
     }
 
+    // Ensure dev_path is set to default if empty
+    if (!dev_path || !dev_path[0]) {
+        dev_path = "/dev/ccll_ctl";
+    }
+
+    // Setup signal handlers to catch termination signals
     signal(SIGINT, on_sig);
     signal(SIGTERM, on_sig);
 
+    // Enable strict libbpf mode for better error checking
     libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
 
+    // Open the pinned BPF map at the specified path
     int map_fd = bpf_obj_get(map_path);
     if (map_fd < 0) {
         fprintf(stderr, "bpf_obj_get(%s) failed: %s\n", map_path, strerror(errno));
         return 1;
     }
 
+    // Retrieve key and value sizes of the BPF map
     __u32 map_key_sz = 0, map_val_sz = 0;
     if (get_map_info(map_fd, &map_key_sz, &map_val_sz) < 0) {
         fprintf(stderr, "bpf_obj_get_info_by_fd failed: %s\n", strerror(errno));
         return 1;
     }
+    // Warn if key size differs from expected userspace struct size (due to kernel padding)
     if (map_key_sz != sizeof(struct flow4_key_user)) {
         fprintf(stderr, "[warn] map key_size=%u differs from userspace struct=%zu (tail padding in kernel is normal). Will iterate with %u bytes and parse first %zu bytes.\n",
                 map_key_sz, sizeof(struct flow4_key_user), map_key_sz, sizeof(struct flow4_key_user));
     }
 
+    // Allocate buffers for current and next keys used in map iteration
     void *cur_key_buf = calloc(1, map_key_sz ? map_key_sz : sizeof(struct flow4_key_user));
     void *next_key_buf = calloc(1, map_key_sz ? map_key_sz : sizeof(struct flow4_key_user));
     if (!cur_key_buf || !next_key_buf) {
@@ -116,6 +141,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // Open the kernel device to write updates; fallback to stdout if fails
     int dev_fd = open(dev_path, O_WRONLY | O_CLOEXEC);
     if (dev_fd < 0) {
         fprintf(stderr, "open(%s) failed: %s — will print to stdout instead.\n",
@@ -125,58 +151,84 @@ int main(int argc, char **argv) {
     struct atu_value value;
     int have_key = 0;
 
+    // Variables to store last seen key and value to detect changes
+    struct flow4_key_user last_fk = {0};
+    struct atu_value      last_val = {0};
+    int                   have_last = 0;
+
+    // Main loop: iterate over BPF map entries and mirror updates to kernel device or stdout
     while (!g_stop) {
         int err;
+        // Get next key from map, starting from NULL or current key
         if (!have_key) {
             err = bpf_map_get_next_key(map_fd, NULL, next_key_buf);
         } else {
             err = bpf_map_get_next_key(map_fd, cur_key_buf, next_key_buf);
         }
 
+        // Handle end of map iteration or errors
         if (err) {
             if (errno != ENOENT) {
                 fprintf(stderr, "bpf_map_get_next_key: %s\n", strerror(errno));
             }
+            // Reset iteration and sleep before retry
             have_key = 0;
             usleep(1000 * interval_ms);
             continue;
         }
 
+        // Lookup the value for the next key
         memset(&value, 0, sizeof(value));
         if (0 == bpf_map_lookup_elem(map_fd, next_key_buf, &value)) {
             struct flow4_key_user fk;
             memset(&fk, 0, sizeof(fk));
-            memcpy(&fk, next_key_buf, sizeof(fk)); // 只取前面這些欄位
+            // Copy only the expected key size portion to struct
+            memcpy(&fk, next_key_buf, sizeof(fk)); 
 
-            if (dev_fd >= 0) {
-                // Create kernel-compatible structure
-                struct ccll_ctl_update kernel_msg = {
-                    .saddr = fk.saddr,
-                    .daddr = fk.daddr,
-                    .sport = fk.sport,
-                    .dport = fk.dport,
-                    .numer = value.numer,
-                    .denom = value.denom,
-                    .timestamp = 0, // Will be set by kernel if needed
-                    .valid = 1      // Mark as valid
-                };
-                ssize_t w = write(dev_fd, &kernel_msg, sizeof(kernel_msg));
-                if (w < 0) {
-                    fprintf(stderr, "write(%s) failed: %s\n", dev_path, strerror(errno));
+            // Check if the key or value has changed since last iteration
+            int changed = 1;
+            if (have_last) {
+                changed = memcmp(&fk, &last_fk, sizeof(fk)) ||
+                          memcmp(&value, &last_val, sizeof(value));
+            }
+            if (changed) {
+                // If device is open, write the update to kernel device
+                if (dev_fd >= 0) {
+                    struct ccll_ctl_update kernel_msg = {
+                        .saddr = fk.saddr,
+                        .daddr = fk.daddr,
+                        .sport = fk.sport,
+                        .dport = fk.dport,
+                        .numer = value.numer,
+                        .denom = value.denom,
+                        .timestamp = 0,
+                        .valid = 1
+                    };
+                    ssize_t w = write(dev_fd, &kernel_msg, sizeof(kernel_msg));
+                    if (w < 0) {
+                        fprintf(stderr, "write(%s) failed: %s\n", dev_path, strerror(errno));
+                    }
+                } else {
+                    // Otherwise, print the update to stdout
+                    printf("%u,%u,%u,%u,%u,%u,%u\n",
+                           fk.saddr, fk.daddr,
+                           fk.sport, fk.dport,
+                           fk.proto, value.numer, value.denom);
+                    fflush(stdout);
                 }
-            } else {
-                printf("%u,%u,%u,%u,%u,%u,%u\n",
-                       fk.saddr, fk.daddr,
-                       fk.sport, fk.dport,
-                       fk.proto, value.numer, value.denom);
-                fflush(stdout);
+                // Save current key and value as last seen
+                memcpy(&last_fk, &fk, sizeof(fk));
+                memcpy(&last_val, &value, sizeof(value));
+                have_last = 1;
             }
         }
 
+        // Update current key buffer to next key for iteration
         memcpy(cur_key_buf, next_key_buf, map_key_sz);
         have_key = 1;
     }
 
+    // Cleanup: close device and map file descriptors and free allocated buffers
     if (dev_fd >= 0) close(dev_fd);
     close(map_fd);
 
