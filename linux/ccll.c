@@ -398,6 +398,7 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 
 static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
+    pr_info("ccll: cong avoid enter \n");
     struct tcp_sock *tp = tcp_sk(sk);
     struct ccllcc *ca = inet_csk_ca(sk);
     u32 rtt;
@@ -451,6 +452,7 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
     // Set new congestion window
     tp->snd_cwnd = max_t(u32, (ca->rate_kbps * rtt) / (1500 * 8 * 1000), 2U);
+    pr_info("ccll: cong avoid leave\n");
 }
 
 static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {

@@ -87,4 +87,8 @@ ebpf-tx:
 daemon:
 	$(CC) -O2 -g -o $(DAEMON_BIN) $(DAEMON_SRC) -lbpf
 
+clean:
+	$(MAKE) -C $(KDIR) M=$$PWD clean
+	rm -f $(EBPF_RX_OBJ) $(EBPF_TX_OBJ) $(DAEMON_BIN)
+
 endif
