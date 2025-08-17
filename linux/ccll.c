@@ -59,7 +59,7 @@ static u32 __maybe_unused ccll_weight __read_mostly = 1;
 
 // ATU integration parameters
 static bool atu_enabled __read_mostly = true;
-static u32 atu_timeout_ms __read_mostly = 100;  // ATU data timeout in milliseconds
+static u32 atu_timeout_ms __read_mostly = 500;  // ATU data timeout in milliseconds
 
 // Module parameters for ATU configuration
 module_param(atu_enabled, bool, 0644);
@@ -349,6 +349,12 @@ static struct atu_state *try_get_atu_from_bpf(struct sock *sk)
 }
 
 // Function to retrieve ATU from SK_STORAGE or per-flow hash table
+// Function to retrieve ATU from SK_STORAGE or per-flow hash table
+// Returns:
+//   0            -> *atu_value is valid and fresh
+//  -EAGAIN       -> no info yet (daemon probably not populated); caller should keep previous state
+//  -ETIMEDOUT    -> info present but stale; caller may use previous cached value if any
+//  -EINVAL       -> invalid record (e.g., denom == 0); caller should treat as missing
 static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 {
     struct atu_state *atu_info = NULL;
@@ -356,45 +362,34 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     u64 current_time = 0;
     u64 timeout_ns = 0;
 
-    pr_info("ccll: lookup atu from header enter\n");
+    pr_info_ratelimited("ccll: lookup atu from header enter\n");
 
-    atu_info = try_get_atu_from_bpf(sk);
-
-    // If no ATU or not valid, return default constant (do not create dummy entry)
-    if (!atu_info || !atu_info->valid) {
-        pr_info_ratelimited("ccll: ATU fallback -> 8000 (enabled=%d have_info=%d valid=%d)\n",
-                            atu_enabled ? 1 : 0,
-                            atu_info ? 1 : 0,
-                            atu_info ? atu_info->valid : 0);
-        *atu_value = 8000; // 80% default
-        return 0;
-    }
-
-    // Check if ATU is enabled
     if (!atu_enabled) {
-        pr_info_ratelimited("ccll: ATU disabled -> fallback 8000\n");
         *atu_value = 8000;
         return 0;
     }
 
-    // Check if data is fresh (configurable timeout)
+    atu_info = try_get_atu_from_bpf(sk);
+    if (!atu_info || !atu_info->valid) {
+        pr_info_ratelimited("ccll: ATU not available yet (enabled=%d)\n",
+                            atu_enabled ? 1 : 0);
+        return -EAGAIN;
+    }
+
     current_time = ktime_get_ns();
     timeout_ns = (u64)atu_timeout_ms * 1000000ULL; // ms to ns
     if (atu_info->timestamp &&
         (current_time - atu_info->timestamp) > timeout_ns) {
-        pr_info_ratelimited("ccll: ATU stale -> fallback 8000 (age=%llums, timeout=%ums)\n",
+        pr_info_ratelimited("ccll: ATU stale (age=%llums, timeout=%ums)\n",
                             (unsigned long long)((current_time - atu_info->timestamp) / 1000000ULL),
                             atu_timeout_ms);
-        *atu_value = 8000;
-        return 0;
+        return -ETIMEDOUT;
     }
 
-    // Validate denominator
     if (atu_info->denom == 0) {
-        pr_info_ratelimited("ccll: ATU invalid denom=0 -> fallback 8000 (numer=%u)\n",
+        pr_info_ratelimited("ccll: ATU invalid denom=0 (numer=%u)\n",
                             atu_info->numer);
-        *atu_value = 8000;
-        return 0;
+        return -EINVAL;
     }
 
     scaled_atu = (u32)div64_u64((u64)atu_info->numer * atu_scale, atu_info->denom);
@@ -403,8 +398,9 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     } else if (scaled_atu > atu_scale) {
         scaled_atu = atu_scale;
     }
-    pr_info_ratelimited("ccll: ATU ok scaled=%u (n=%u d=%u)\n", scaled_atu, atu_info->numer, atu_info->denom);
     *atu_value = scaled_atu;
+    pr_info_ratelimited("ccll: ATU ok scaled=%u (n=%u d=%u)\n",
+                        scaled_atu, atu_info->numer, atu_info->denom);
     return 0;
 }
 
@@ -418,7 +414,7 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
     if (!tcp_is_cwnd_limited(sk)) {
         if (tp->snd_cwnd < cwnd_target)
             tp->snd_cwnd = cwnd_target;
-        pr_info_ratelimited("ccll: cong_avoid (not-limited) cwnd=%u inflight=%u target=%u\n",
+        pr_info_ratelimited("ccll: cong_avoid (not-limited/waiting-ok) cwnd=%u inflight=%u target=%u\n",
                             tp->snd_cwnd, inflight, cwnd_target);
         return;
     }
@@ -468,8 +464,27 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
             1ULL);
     }
 
-    lookup_atu_from_header(sk, &atu);
-    ca->max_atu = atu;
+    {
+        int rc = lookup_atu_from_header(sk, &atu);
+        if (rc == 0) {
+            /* Fresh ATU -> remember it */
+            ca->max_atu = atu;
+        } else if (rc == -ETIMEDOUT) {
+            /* Stale: prefer last known good value if we have it, else fall back */
+            if (ca->max_atu)
+                atu = ca->max_atu;
+            else
+                atu = 8000;
+            pr_info_ratelimited("ccll: using cached/stale ATU=%u (rc=%d)\n", atu, rc);
+        } else { /* -EAGAIN or -EINVAL or others */
+            /* First-ACK race: keep previous target/rate; do not force fallback here */
+            if (ca->max_atu)
+                atu = ca->max_atu;
+            else
+                atu = 8000;
+            pr_info_ratelimited("ccll: ATU pending/invalid -> using last or default %u (rc=%d)\n", atu, rc);
+        }
+    }
 
     if (atu < atu_frac_lb) {
         update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_fraction / k_p_scale);
