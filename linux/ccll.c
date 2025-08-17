@@ -200,10 +200,17 @@ static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event ev) {
     
     switch (ev) {
     case CA_EVENT_LOSS:
-    case CA_EVENT_CWND_RESTART:
         ccllcc_reset(ca);
         pr_info_ratelimited("ccll: cwnd_event reset done (ev=%d)\n", (int)ev);
         break;
+    case CA_EVENT_CWND_RESTART: {
+        u32 target = max_t(u32, (u32)(ca->cwndx10e3 / 1000ULL), 2U);
+        if (tp->snd_cwnd < target)
+            tp->snd_cwnd = target;
+        pr_info_ratelimited("ccll: cwnd_event restart (keep cwnd=%u, target=%u)\n",
+                            tp->snd_cwnd, target);
+        break;
+    }
     default:
         break;
     }
@@ -485,6 +492,7 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
             pr_info_ratelimited("ccll: ATU pending/invalid -> using last or default %u (rc=%d)\n", atu, rc);
         }
     }
+    ca->max_atu = atu;
 
     if (atu < atu_frac_lb) {
         update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_fraction / k_p_scale);
@@ -512,7 +520,7 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
     ca->cwndx10e3 = (u64)cwnd_target * 1000ULL;
 
     pr_info_ratelimited("ccll: pkts_acked post rtt_us=%u min_rtt=%u atu=%u rate_kbps=%llu cwnd_target=%u\n",
-                        ca->curr_rtt, ca->min_rtt, ca->max_atu,
+                        ca->curr_rtt, ca->min_rtt, atu,
                         (unsigned long long)ca->rate_kbps, cwnd_target);
 }
 

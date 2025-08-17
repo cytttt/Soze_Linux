@@ -56,6 +56,7 @@ sudo insmod ccll.ko
 sudo dmesg | grep ccll_ctl
 # [185511.608338] ccll: ccll_ctl char device registered with major 508
 sudo mknod /dev/ccll_ctl c <MAJOR> 0
+# sudo mknod /dev/ccll_ctl c 508 0
 sudo chmod 666 /dev/ccll_ctl
 sudo sysctl -w net.ipv4.tcp_congestion_control=ccll
 ```
