@@ -105,6 +105,11 @@ ip netns exec send bash -lc '
     dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000
 '
 
+sudo ip netns exec send bash -lc '
+  ethtool -K veth-s rx off tx off tso off gso off gro off lro off || true
+  dd if=/dev/zero bs=1460 count=200 2>/dev/null | nc -N 10.0.0.1 5000
+'
+
 # check sender side map
 bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ```
@@ -112,9 +117,16 @@ bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ### Eval
 ```
 # tcp dump
-ip netns exec recv bash -lc '
+sudo ip netns exec recv bash -lc '
     ethtool -K veth-r rx off tx off tso off gso off gro off lro off
     tcpdump -i veth-r -Q out -n -vvv -s0 -XX "src 10.0.0.1" -c 5
+'
+
+sudo ip netns exec recv bash -lc '
+  ethtool -K veth-r rx off tx off tso off gso off gro off lro off || true
+  tcpdump -i veth-r -Q out -n -vvv -s0 -XX \
+    "src host 10.0.0.1 and tcp[13] == 0x10" \
+    -c 30
 '
 
 # check hex option
@@ -126,4 +138,5 @@ sudo cat /sys/kernel/debug/tracing/trace_pipe
 ### daemon
 ```
 sudo ./ccll_atu_daemon --map /sys/fs/bpf/tc/ack_atu_by_flow --dev /dev/ccll_ctl
+./ccll_atu_daemon --map /sys/fs/bpf/tc/ack_atu_by_flow --dev /dev/ccll_ctl --interval-ms 50
 ```

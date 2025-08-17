@@ -19,6 +19,8 @@
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 // Structure representing the key format expected from the BPF map for IPv4 flows.
 // Contains source/destination addresses and ports, and protocol number.
@@ -50,15 +52,26 @@ struct ccll_ctl_update {
     uint32_t valid;    // validity flag
 };
 
+static const char* ip4_ntop(uint32_t be_addr, char buf[INET_ADDRSTRLEN]) {
+    // be_addr is in network byte order; inet_ntop expects that
+    return inet_ntop(AF_INET, &be_addr, buf, INET_ADDRSTRLEN) ? buf : "<invalid>";
+}
+
 static volatile int g_stop = 0;
+static int g_flip_direction = 1; // default: flip server->client (map) to client->server (kernel)
 // Signal handler to catch termination signals (SIGINT, SIGTERM) and set stop flag.
 static void on_sig(int sig) { (void)sig; g_stop = 1; }
 
 // Prints usage information for the daemon.
 static void usage(const char *argv0) {
     fprintf(stderr,
-        "Usage: %s --map <pinned_map_path> [--dev /dev/ccll_ctl] [--interval-ms 50]\n",
-        argv0);
+            "Usage: %s --map <pinned_map_path> [--dev /dev/ccll_ctl] [--interval-ms 50] [--no-flip]\n"
+            "  --map          Path to pinned BPF map (default: /sys/fs/bpf/tc/ack_atu_by_flow)\n"
+            "  --dev          Path to char device (default: /dev/ccll_ctl)\n"
+            "  --interval-ms  Poll interval in milliseconds (default: 50)\n"
+            "  --no-flip      Do NOT flip direction (by default the daemon flips\n"
+            "                 10.0.0.1:5000->10.0.0.2:ephem to 10.0.0.2:ephem->10.0.0.1:5000)\n",
+            argv0);
 }
 
 // Helper function to fetch BPF map key and value sizes given a map file descriptor.
@@ -84,13 +97,14 @@ int main(int argc, char **argv) {
     static struct option opts[] = {
         {"map", required_argument,  NULL, 'm'},
         {"dev", required_argument,  NULL, 'd'},
-        {"interval-ms", optional_argument, NULL, 'i'},
+        {"interval-ms", required_argument, NULL, 'i'},
+        {"no-flip", no_argument,    NULL, 'F'},
         {0, 0, 0, 0},
     };
 
     // Parse command line arguments
     int c;
-    while ((c = getopt_long(argc, argv, "m:d:i:", opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "m:d:i:F", opts, NULL)) != -1) {
         switch (c) {
         case 'm': map_path = optarg; break;
         case 'd':
@@ -98,6 +112,7 @@ int main(int argc, char **argv) {
                 dev_path = optarg;
             break;
         case 'i': interval_ms = atoi(optarg); break;
+        case 'F': g_flip_direction = 0; break;
         default: usage(argv[0]); return 1;
         }
     }
@@ -156,6 +171,9 @@ int main(int argc, char **argv) {
     struct atu_value      last_val = {0};
     int                   have_last = 0;
 
+    fprintf(stderr, "[daemon] map=%s dev=%s interval=%dms flip=%s\n",
+            map_path, dev_path, interval_ms, g_flip_direction ? "on" : "off");
+
     // Main loop: iterate over BPF map entries and mirror updates to kernel device or stdout
     while (!g_stop) {
         int err;
@@ -192,36 +210,60 @@ int main(int argc, char **argv) {
                           memcmp(&value, &last_val, sizeof(value));
             }
             if (changed) {
-                // If device is open, write the update to kernel device
-                if (dev_fd >= 0) {
-                    struct ccll_ctl_update kernel_msg = {
-                        .saddr = fk.saddr,
-                        .daddr = fk.daddr,
-                        .sport = fk.sport,
-                        .dport = fk.dport,
-                        .numer = value.numer,
-                        .denom = value.denom,
-                        .timestamp = 0,
-                        .valid = 1
-                    };
-                    ssize_t w = write(dev_fd, &kernel_msg, sizeof(kernel_msg));
-                    if (w < 0) {
-                        fprintf(stderr, "write(%s) failed: %s\n", dev_path, strerror(errno));
-                    }
-                    else {
-                        if (w == sizeof(kernel_msg)) {
-                            fprintf(stderr, "[daemon] wrote to /dev/ccll_ctl OK\n");
-                        } else {
-                            fprintf(stderr, "[daemon] write error: ret=%zd\n", w);
-                        }
-                    }
+                // Only care TCP (proto==6)
+                if (fk.proto != 6) {
+                    // advance and continue
                 } else {
-                    // Otherwise, print the update to stdout
-                    printf("%u,%u,%u,%u,%u,%u,%u\n",
-                           fk.saddr, fk.daddr,
-                           fk.sport, fk.dport,
-                           fk.proto, value.numer, value.denom);
-                    fflush(stdout);
+                    // Prepare key for kernel: flip direction by default
+                    struct flow4_key_user k = fk;
+                    if (g_flip_direction) {
+                        uint32_t tsaddr = k.saddr;  k.saddr = k.daddr;  k.daddr = tsaddr;
+                        uint16_t tsport = k.sport;  k.sport = k.dport;  k.dport = tsport;
+                    }
+
+                    // Timestamp in ns (monotonic)
+                    struct timespec ts;
+                    clock_gettime(CLOCK_MONOTONIC, &ts);
+                    uint64_t ts_ns = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+
+                    // Verbose print
+                    char a[INET_ADDRSTRLEN], b[INET_ADDRSTRLEN], cbuf[INET_ADDRSTRLEN], dbuf[INET_ADDRSTRLEN];
+                    fprintf(stderr,
+                            "[daemon] map  %s:%u -> %s:%u (proto=%u)  ATU=%u/%u\n",
+                            ip4_ntop(fk.saddr, a), ntohs(fk.sport),
+                            ip4_ntop(fk.daddr, b), ntohs(fk.dport),
+                            fk.proto, value.numer, value.denom);
+                    fprintf(stderr,
+                            "[daemon] send %s:%u -> %s:%u ts=%llu\n",
+                            ip4_ntop(k.saddr, cbuf), ntohs(k.sport),
+                            ip4_ntop(k.daddr, dbuf), ntohs(k.dport),
+                            (unsigned long long)ts_ns);
+
+                    if (dev_fd >= 0) {
+                        struct ccll_ctl_update kernel_msg = {
+                            .saddr = k.saddr,
+                            .daddr = k.daddr,
+                            .sport = k.sport,
+                            .dport = k.dport,
+                            .numer = value.numer,
+                            .denom = value.denom,
+                            .timestamp = ts_ns,
+                            .valid = 1
+                        };
+                        ssize_t w = write(dev_fd, &kernel_msg, sizeof(kernel_msg));
+                        if (w < 0) {
+                            fprintf(stderr, "write(%s) failed: %s\n", dev_path, strerror(errno));
+                        } else if (w != sizeof(kernel_msg)) {
+                            fprintf(stderr, "[daemon] short write: ret=%zd (expected %zu)\n", w, sizeof(kernel_msg));
+                        } else {
+                            fprintf(stderr, "[daemon] wrote to /dev/ccll_ctl OK\n");
+                        }
+                    } else {
+                        // stdout fallback in CSV (network-order integers)
+                        printf("%u,%u,%u,%u,%u,%u,%u\n",
+                               k.saddr, k.daddr, k.sport, k.dport, fk.proto, value.numer, value.denom);
+                        fflush(stdout);
+                    }
                 }
                 // Save current key and value as last seen
                 memcpy(&last_fk, &fk, sizeof(fk));
@@ -242,5 +284,6 @@ int main(int argc, char **argv) {
     free(cur_key_buf);
     free(next_key_buf);
 
+    fprintf(stderr, "[daemon] exiting\n");
     return 0;
 }
