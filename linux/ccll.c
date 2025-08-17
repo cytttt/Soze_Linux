@@ -532,6 +532,11 @@ static ssize_t ccll_ctl_write(struct file *file, const char __user *buf,
     state.denom = update.denom;
     state.timestamp = update.timestamp;
     state.valid = update.valid;
+    
+    pr_info_ratelimited("ccll_ctl: update %pI4:%u -> %pI4:%u numer=%u denom=%u valid=%u ts=%llu\n",
+        &key.saddr, ntohs(key.sport), &key.daddr, ntohs(key.dport),
+        state.numer, state.denom, state.valid,
+        (unsigned long long)state.timestamp);
 
     atu_flow_update(&key, &state);
 

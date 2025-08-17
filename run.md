@@ -77,3 +77,14 @@ bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 # check sender side map
 bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ```
+
+#### CC
+```
+sudo insmod ccll.ko
+
+sudo dmesg | grep ccll_ctl
+# [185511.608338] ccll: ccll_ctl char device registered with major 508
+
+sudo mknod /dev/ccll_ctl c <MAJOR> 0
+sudo chmod 666 /dev/ccll_ctl
+```

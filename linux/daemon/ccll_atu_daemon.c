@@ -208,6 +208,13 @@ int main(int argc, char **argv) {
                     if (w < 0) {
                         fprintf(stderr, "write(%s) failed: %s\n", dev_path, strerror(errno));
                     }
+                    else {
+                        if (w == sizeof(kernel_msg)) {
+                            fprintf(stderr, "[daemon] wrote to /dev/ccll_ctl OK\n");
+                        } else {
+                            fprintf(stderr, "[daemon] write error: ret=%zd\n", w);
+                        }
+                    }
                 } else {
                     // Otherwise, print the update to stdout
                     printf("%u,%u,%u,%u,%u,%u,%u\n",
