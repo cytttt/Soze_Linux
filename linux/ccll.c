@@ -352,7 +352,7 @@ static struct atu_state *try_get_atu_from_bpf(struct sock *sk)
 // Function to retrieve ATU from SK_STORAGE or per-flow hash table
 static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 {
-    pr_infol("ccll: lookup atu from header enter\n");
+    pr_info("ccll: lookup atu from header enter\n");
     struct atu_state *atu_info;
     u32 scaled_atu;
     u64 current_time;
