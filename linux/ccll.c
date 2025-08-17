@@ -351,11 +351,12 @@ static struct atu_state *try_get_atu_from_bpf(struct sock *sk)
 // Function to retrieve ATU from SK_STORAGE or per-flow hash table
 static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
 {
-    pr_info("ccll: lookup atu from header enter\n");
-    struct atu_state *atu_info;
-    u32 scaled_atu;
-    u64 current_time;
+    struct atu_state *atu_info = NULL;
+    u32 scaled_atu = 0;
+    u64 current_time = 0;
     u64 timeout_ns = 0;
+
+    pr_info("ccll: lookup atu from header enter\n");
 
     atu_info = try_get_atu_from_bpf(sk);
 
@@ -402,7 +403,7 @@ static int lookup_atu_from_header(struct sock *sk, u32 *atu_value)
     } else if (scaled_atu > atu_scale) {
         scaled_atu = atu_scale;
     }
-    pr_info_ratelimited("ccll: ATU ok scaled=%u (n=%u d=%u)\n", scaled_atu, atu_info->numer, atu_info->denom)
+    pr_info_ratelimited("ccll: ATU ok scaled=%u (n=%u d=%u)\n", scaled_atu, atu_info->numer, atu_info->denom);
     *atu_value = scaled_atu;
     return 0;
 }
