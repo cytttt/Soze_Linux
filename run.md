@@ -108,7 +108,7 @@ ip netns exec send bash -lc '
 
 sudo ip netns exec send bash -lc '
   ethtool -K veth-s rx off tx off tso off gso off gro off lro off || true
-  dd if=/dev/zero bs=1460 count=200 2>/dev/null | nc -N 10.0.0.1 5000
+  dd if=/dev/zero bs=1460 count=200 2>/dev/null | nc -q 5 10.0.0.1 5000
 '
 
 # check sender side map

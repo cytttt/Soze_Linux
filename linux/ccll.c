@@ -439,89 +439,145 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
     struct tcp_sock *tp = tcp_sk(sk);
     struct inet_sock *inet = inet_sk(sk);
     u32 rtt;
-    u32 atu;
+    u32 atu = 0;
+    int rc;
     u64 update;
     u32 cwnd;
     u64 per_pkt_update;
     u32 cwnd_target;
 
-    /* Log incoming ACK sample (even duplicates will be filtered below) */
-    pr_info_ratelimited("ccll: pkts_acked pre rtt_us=%d inflight=%d s=%pI4:%u -> d=%pI4:%u cwnd=%u\n",
-                        sample->rtt_us, sample->in_flight,
-                        &inet->inet_saddr, ntohs(inet->inet_sport),
-                        &inet->inet_daddr, ntohs(inet->inet_dport),
-                        tp->snd_cwnd);
+    /* ---------- PRE: raw sample ---------- */
+    pr_info_ratelimited(
+        "ccll: pkts_acked pre rtt_us=%d inflight=%d s=%pI4:%u -> d=%pI4:%u cwnd=%u rate_kbps(before)=%llu\n",
+        sample->rtt_us, sample->in_flight,
+        &inet->inet_saddr, ntohs(inet->inet_sport),
+        &inet->inet_daddr, ntohs(inet->inet_dport),
+        tp->snd_cwnd, (unsigned long long)ca->rate_kbps);
 
     /* Some calls are for duplicates without timestamps */
     if (sample->rtt_us < 0)
         return;
 
-    // Update RTT
+    /* ---------- RTT update ---------- */
     rtt = (sample->rtt_us > 0) ? sample->rtt_us : 1;
     if (rtt > 1000000)
-        rtt = 1000000;
+        rtt = 1000000; /* clamp to 1s to keep math sane */
     ca->curr_rtt = rtt;
     if (ca->min_rtt == 0 || rtt < ca->min_rtt)
         ca->min_rtt = rtt;
+    pr_info_ratelimited("ccll: rtt update rtt_us=%u min_rtt=%u\n", ca->curr_rtt, ca->min_rtt);
 
-    
+    /* ---------- initial rate bootstrap (once) ---------- */
     if (ca->rate_kbps == 0) {
         ca->rate_kbps = max_t(u64,
             (tcp_sk(sk)->snd_cwnd * 1500ULL * 8ULL * 1000ULL) / rtt,
             1ULL);
+        pr_info_ratelimited("ccll: bootstrap rate_kbps=%llu from cwnd=%u rtt=%u\n",
+                            (unsigned long long)ca->rate_kbps, tp->snd_cwnd, rtt);
     }
 
+    /* ---------- ATU lookup (with reason) ---------- */
+    pr_info_ratelimited("ccll: lookup atu from header enter\n");
+    rc = lookup_atu_from_header(sk, &atu);
+    if (rc == 0) {
+        ca->max_atu = atu; /* remember fresh value */
+        pr_info_ratelimited("ccll: ATU fresh -> %u (cache now %u)\n", atu, ca->max_atu);
+    } else if (rc == -ETIMEDOUT) {
+        if (ca->max_atu)
+            atu = ca->max_atu;
+        else
+            atu = 8000;
+        pr_info_ratelimited("ccll: ATU stale -> use %u (rc=%d, cache=%u)\n", atu, rc, ca->max_atu);
+    } else { /* -EAGAIN / -EINVAL / others */
+        if (ca->max_atu)
+            atu = ca->max_atu;
+        else
+            atu = 8000;
+        pr_info_ratelimited("ccll: ATU missing -> use %u (rc=%d, cache=%u)\n", atu, rc, ca->max_atu);
+    }
+
+    /* ---------- math debug: log(rate) etc. ---------- */
     {
-        int rc = lookup_atu_from_header(sk, &atu);
-        if (rc == 0) {
-            /* Fresh ATU -> remember it */
-            ca->max_atu = atu;
-        } else if (rc == -ETIMEDOUT) {
-            /* Stale: prefer last known good value if we have it, else fall back */
-            if (ca->max_atu)
-                atu = ca->max_atu;
-            else
-                atu = 8000;
-            pr_info_ratelimited("ccll: using cached/stale ATU=%u (rc=%d)\n", atu, rc);
-        } else { /* -EAGAIN or -EINVAL or others */
-            /* First-ACK race: keep previous target/rate; do not force fallback here */
-            if (ca->max_atu)
-                atu = ca->max_atu;
-            else
-                atu = 8000;
-            pr_info_ratelimited("ccll: ATU pending/invalid -> using last or default %u (rc=%d)\n", atu, rc);
-        }
+        u64 rate_scaled = ca->rate_kbps * FPS;    /* rate * 1e5 */
+        u64 lg_rate     = log_approx(rate_scaled);
+        pr_info_ratelimited("ccll: math in lg_rate=%llu (rate_kbps=%llu, scaled=%llu)\n",
+                            (unsigned long long)lg_rate,
+                            (unsigned long long)ca->rate_kbps,
+                            (unsigned long long)rate_scaled);
     }
-    ca->max_atu = atu;
 
+    /* ---------- compute update according to ATU region ---------- */
     if (atu < atu_frac_lb) {
-        update = exp_approx((ln10e5_max_rate - log_approx(ca->rate_kbps * FPS)) * k_p_fraction / k_p_scale);
-    } else if (atu >= atu_frac_lb && atu <= atu_frac_lb + atu_frac_range) {
-        update = exp_approx(
-            (ln10e5_max_rate
-                - log_approx(ca->rate_kbps * FPS)
-                + log_approx(exp_approx((ln10e5_min_rate - ln10e5_max_rate) * (atu - atu_frac_lb) / atu_frac_range) * FPS)
-            ) * k_p_fraction / k_p_scale);
-    } else if (atu > atu_frac_lb + atu_frac_range && atu <= atu_scale) {
-        update = exp_approx(
-            (ln10e5_min_rate
-                - log_approx(ca->rate_kbps * FPS)
-                + log_approx((atu_scale - atu) * FPS / (atu_scale - atu_frac_lb - atu_frac_range))
-            ) * k_p_fraction / k_p_scale);
+        u64 rate_scaled = ca->rate_kbps * FPS;
+        u64 lg_rate = log_approx(rate_scaled);
+        u64 arg = (ln10e5_max_rate - lg_rate) * k_p_fraction / k_p_scale;
+        update = exp_approx(arg);
+        pr_info_ratelimited("ccll: region A (atu=%u<%u) arg=%llu update=%llu\n",
+                            atu, atu_frac_lb, (unsigned long long)arg, (unsigned long long)update);
+    } else if (atu <= atu_frac_lb + atu_frac_range) {
+        u64 rate_scaled = ca->rate_kbps * FPS;
+        u64 lg_rate = log_approx(rate_scaled);
+        u64 inner = (ln10e5_min_rate - ln10e5_max_rate)
+                    * (atu - atu_frac_lb) / atu_frac_range;
+        u64 exp_inner = exp_approx(inner);
+        u64 lg_extra = log_approx(exp_inner * FPS);
+        u64 arg = (ln10e5_max_rate - lg_rate + lg_extra) * k_p_fraction / k_p_scale;
+        update = exp_approx(arg);
+        pr_info_ratelimited(
+            "ccll: region B (atu=%u in [%u,%u]) inner=%llu exp_inner=%llu lg_extra=%llu arg=%llu update=%llu\n",
+            atu, atu_frac_lb, atu_frac_lb + atu_frac_range,
+            (unsigned long long)inner, (unsigned long long)exp_inner,
+            (unsigned long long)lg_extra, (unsigned long long)arg,
+            (unsigned long long)update);
+    } else if (atu <= atu_scale) {
+        u64 rate_scaled = ca->rate_kbps * FPS;
+        u64 lg_rate = log_approx(rate_scaled);
+        u64 frac = (atu_scale - atu);
+        u64 denom = (atu_scale - atu_frac_lb - atu_frac_range);
+        u64 lg_extra = log_approx(frac * FPS / (denom ? denom : 1));
+        u64 arg = (ln10e5_min_rate - lg_rate + lg_extra) * k_p_fraction / k_p_scale;
+        update = exp_approx(arg);
+        pr_info_ratelimited(
+            "ccll: region C (atu=%u..%u) frac=%llu denom=%llu lg_extra=%llu arg=%llu update=%llu\n",
+            atu_frac_lb + atu_frac_range, atu,
+            (unsigned long long)frac, (unsigned long long)denom,
+            (unsigned long long)lg_extra, (unsigned long long)arg,
+            (unsigned long long)update);
     } else {
         update = FPS;
+        pr_info_ratelimited("ccll: region D (atu=%u>scale=%u) update=%llu\n",
+                            atu, atu_scale, (unsigned long long)update);
     }
 
-    cwnd = (u32)max_t(u64, (ca->rate_kbps * rtt) / (1500ULL * 8ULL * 1000ULL), 1ULL);
-    per_pkt_update = exp_approx(log_approx(update * FPS) / cwnd);
-    ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
+    /* ---------- cwnd/rate update debug ---------- */
+    cwnd = (u32)max_t(u64, (ca->rate_kbps * (u64)rtt) / (1500ULL * 8ULL * 1000ULL), 1ULL);
+    {
+        u64 lg_upd = log_approx(update * FPS);
+        per_pkt_update = exp_approx(lg_upd / (cwnd ? cwnd : 1));
+        pr_info_ratelimited(
+            "ccll: rate step cwnd=%u lg(update*FPS)=%llu per_pkt_update=%llu\n",
+            cwnd, (unsigned long long)lg_upd, (unsigned long long)per_pkt_update);
+    }
 
-    cwnd_target = max_t(u32, (u32)((ca->rate_kbps * rtt) / (1500ULL * 8ULL * 1000ULL)), 2U);
+    /* apply rate */
+    {
+        u64 before = ca->rate_kbps;
+        ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
+        pr_info_ratelimited("ccll: rate apply before=%llu after=%llu\n",
+                            (unsigned long long)before,
+                            (unsigned long long)ca->rate_kbps);
+    }
+
+    /* recompute target cwnd */
+    cwnd_target = max_t(u32, (u32)((ca->rate_kbps * (u64)rtt) / (1500ULL * 8ULL * 1000ULL)), 2U);
     ca->cwndx10e3 = (u64)cwnd_target * 1000ULL;
 
-    pr_info_ratelimited("ccll: pkts_acked post rtt_us=%u min_rtt=%u atu=%u rate_kbps=%llu cwnd_target=%u\n",
-                        ca->curr_rtt, ca->min_rtt, atu,
-                        (unsigned long long)ca->rate_kbps, cwnd_target);
+    /* ---------- POST summary ---------- */
+    pr_info_ratelimited(
+        "ccll: pkts_acked post rtt_us=%u min_rtt=%u atu=%u rate_kbps=%llu cwnd_target=%u inflight=%u\n",
+        ca->curr_rtt, ca->min_rtt, atu,
+        (unsigned long long)ca->rate_kbps, cwnd_target,
+        tcp_packets_in_flight(tp));
 }
 
 static struct tcp_congestion_ops ccll __read_mostly = {
