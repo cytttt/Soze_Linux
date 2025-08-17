@@ -591,7 +591,7 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
     /* apply rate */
     {
         u64 before = ca->rate_kbps;
-        ca->rate_kbps = (ca->rate_kbps * per_pkt_update) / FPS;
+        ca->rate_kbps = (ca->rate_kbps * per_pkt_update);
         pr_info_ratelimited("ccll: rate apply before=%llu after=%llu\n",
                             (unsigned long long)before,
                             (unsigned long long)ca->rate_kbps);

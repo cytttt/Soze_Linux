@@ -21,6 +21,7 @@
 #include <bpf/bpf.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <inttypes.h>
 
 // Structure representing the key format expected from the BPF map for IPv4 flows.
 // Contains source/destination addresses and ports, and protocol number.
@@ -52,6 +53,51 @@ struct ccll_ctl_update {
     uint32_t valid;    // validity flag
 };
 
+// --- Simple per-flow cache to avoid spamming kernel with identical updates ---
+#define MAX_CACHE 4096
+#define RESEND_NS (500ULL * 1000 * 1000)  // 500ms min interval for identical (key,value)
+
+struct cache_entry {
+    struct flow4_key_user key;   // key in the direction we SEND (after flip if enabled)
+    struct atu_value       val;  // numer/denom
+    uint64_t               last_sent_ns;
+    int                    in_use;
+};
+
+static struct cache_entry g_cache[MAX_CACHE];
+
+static int key_eq(const struct flow4_key_user *a, const struct flow4_key_user *b) {
+    return a->saddr == b->saddr && a->daddr == b->daddr &&
+           a->sport == b->sport && a->dport == b->dport && a->proto == b->proto;
+}
+
+static int val_eq(const struct atu_value *a, const struct atu_value *b) {
+    return a->numer == b->numer && a->denom == b->denom;
+}
+
+// Return index in cache if found, else -1
+static int cache_find(const struct flow4_key_user *k) {
+    for (int i = 0; i < MAX_CACHE; i++) {
+        if (g_cache[i].in_use && key_eq(&g_cache[i].key, k))
+            return i;
+    }
+    return -1;
+}
+
+// Return index to insert/update (either existing, or first free, or 0 as fallback)
+static int cache_place(const struct flow4_key_user *k) {
+    int free_idx = -1;
+    for (int i = 0; i < MAX_CACHE; i++) {
+        if (g_cache[i].in_use) {
+            if (key_eq(&g_cache[i].key, k))
+                return i;
+        } else if (free_idx < 0) {
+            free_idx = i;
+        }
+    }
+    return free_idx >= 0 ? free_idx : 0;
+}
+
 static const char* ip4_ntop(uint32_t be_addr, char buf[INET_ADDRSTRLEN]) {
     // be_addr is in network byte order; inet_ntop expects that
     return inet_ntop(AF_INET, &be_addr, buf, INET_ADDRSTRLEN) ? buf : "<invalid>";
@@ -70,7 +116,8 @@ static void usage(const char *argv0) {
             "  --dev          Path to char device (default: /dev/ccll_ctl)\n"
             "  --interval-ms  Poll interval in milliseconds (default: 50)\n"
             "  --no-flip      Do NOT flip direction (by default the daemon flips\n"
-            "                 10.0.0.1:5000->10.0.0.2:ephem to 10.0.0.2:ephem->10.0.0.1:5000)\n",
+            "                 10.0.0.1:5000->10.0.0.2:ephem to 10.0.0.2:ephem->10.0.0.1:5000)\n"
+            "  (debounce)     Identical (key,value) writes are throttled to one per 500ms.\n",
             argv0);
 }
 
@@ -166,11 +213,6 @@ int main(int argc, char **argv) {
     struct atu_value value;
     int have_key = 0;
 
-    // Variables to store last seen key and value to detect changes
-    struct flow4_key_user last_fk = {0};
-    struct atu_value      last_val = {0};
-    int                   have_last = 0;
-
     fprintf(stderr, "[daemon] map=%s dev=%s interval=%dms flip=%s\n",
             map_path, dev_path, interval_ms, g_flip_direction ? "on" : "off");
 
@@ -203,30 +245,35 @@ int main(int argc, char **argv) {
             // Copy only the expected key size portion to struct
             memcpy(&fk, next_key_buf, sizeof(fk)); 
 
-            // Check if the key or value has changed since last iteration
-            int changed = 1;
-            if (have_last) {
-                changed = memcmp(&fk, &last_fk, sizeof(fk)) ||
-                          memcmp(&value, &last_val, sizeof(value));
-            }
-            if (changed) {
-                // Only care TCP (proto==6)
-                if (fk.proto != 6) {
-                    // advance and continue
+            // Only care TCP (proto==6)
+            if (fk.proto == 6) {
+                // Prepare key for kernel: flip direction by default
+                struct flow4_key_user k = fk;
+                if (g_flip_direction) {
+                    uint32_t tsaddr = k.saddr;  k.saddr = k.daddr;  k.daddr = tsaddr;
+                    uint16_t tsport = k.sport;  k.sport = k.dport;  k.dport = tsport;
+                }
+
+                // Timestamp in ns (monotonic)
+                struct timespec ts;
+                clock_gettime(CLOCK_MONOTONIC, &ts);
+                uint64_t ts_ns = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+
+                // Debounce: send only if (a) value changed from last sent for this key, or
+                //           (b) last send older than RESEND_NS.
+                int idx = cache_find(&k);
+                int should_send = 0;
+                if (idx < 0) {
+                    should_send = 1;                 // first time seeing this key
+                    idx = cache_place(&k);
                 } else {
-                    // Prepare key for kernel: flip direction by default
-                    struct flow4_key_user k = fk;
-                    if (g_flip_direction) {
-                        uint32_t tsaddr = k.saddr;  k.saddr = k.daddr;  k.daddr = tsaddr;
-                        uint16_t tsport = k.sport;  k.sport = k.dport;  k.dport = tsport;
-                    }
+                    if (!val_eq(&g_cache[idx].val, &value))
+                        should_send = 1;             // value changed
+                    else if (ts_ns - g_cache[idx].last_sent_ns >= RESEND_NS)
+                        should_send = 1;             // periodic refresh
+                }
 
-                    // Timestamp in ns (monotonic)
-                    struct timespec ts;
-                    clock_gettime(CLOCK_MONOTONIC, &ts);
-                    uint64_t ts_ns = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
-
-                    // Verbose print
+                if (should_send) {
                     char a[INET_ADDRSTRLEN], b[INET_ADDRSTRLEN], cbuf[INET_ADDRSTRLEN], dbuf[INET_ADDRSTRLEN];
                     fprintf(stderr,
                             "[daemon] map  %s:%u -> %s:%u (proto=%u)  ATU=%u/%u\n",
@@ -234,10 +281,10 @@ int main(int argc, char **argv) {
                             ip4_ntop(fk.daddr, b), ntohs(fk.dport),
                             fk.proto, value.numer, value.denom);
                     fprintf(stderr,
-                            "[daemon] send %s:%u -> %s:%u ts=%llu\n",
+                            "[daemon] send %s:%u -> %s:%u ts=%" PRIu64 "\n",
                             ip4_ntop(k.saddr, cbuf), ntohs(k.sport),
                             ip4_ntop(k.daddr, dbuf), ntohs(k.dport),
-                            (unsigned long long)ts_ns);
+                            ts_ns);
 
                     if (dev_fd >= 0) {
                         struct ccll_ctl_update kernel_msg = {
@@ -264,11 +311,13 @@ int main(int argc, char **argv) {
                                k.saddr, k.daddr, k.sport, k.dport, fk.proto, value.numer, value.denom);
                         fflush(stdout);
                     }
+
+                    // Update cache slot
+                    g_cache[idx].key = k;
+                    g_cache[idx].val = value;
+                    g_cache[idx].last_sent_ns = ts_ns;
+                    g_cache[idx].in_use = 1;
                 }
-                // Save current key and value as last seen
-                memcpy(&last_fk, &fk, sizeof(fk));
-                memcpy(&last_val, &value, sizeof(value));
-                have_last = 1;
             }
         }
 
