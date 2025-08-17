@@ -49,7 +49,7 @@ static u32 __maybe_unused delay_scale __read_mostly = 8000;        // us
 #define FPS 100000ULL
 // K_p = 0.1
 static u32 k_p_scale __read_mostly = 100;
-static u32 k_p_fraction __read_mostly = 1;
+static u32 k_p_fraction __read_mostly = 10;  /* Kp = 0.10 = k_p_fraction / k_p_scale */
 
 static u32 atu_scale __read_mostly = 10000;
 static u32 atu_frac_lb __read_mostly = 9200; // X
@@ -506,47 +506,76 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
                             (unsigned long long)rate_scaled);
     }
 
-    /* ---------- compute update according to ATU region ---------- */
-    if (atu < atu_frac_lb) {
-        u64 rate_scaled = ca->rate_kbps * FPS;
-        u64 lg_rate = log_approx(rate_scaled);
-        u64 arg = (ln10e5_max_rate - lg_rate) * k_p_fraction / k_p_scale;
-        update = exp_approx(arg);
-        pr_info_ratelimited("ccll: region A (atu=%u<%u) arg=%llu update=%llu\n",
-                            atu, atu_frac_lb, (unsigned long long)arg, (unsigned long long)update);
-    } else if (atu <= atu_frac_lb + atu_frac_range) {
-        u64 rate_scaled = ca->rate_kbps * FPS;
-        u64 lg_rate = log_approx(rate_scaled);
-        u64 inner = (ln10e5_min_rate - ln10e5_max_rate)
-                    * (atu - atu_frac_lb) / atu_frac_range;
-        u64 exp_inner = exp_approx(inner);
-        u64 lg_extra = log_approx(exp_inner * FPS);
-        u64 arg = (ln10e5_max_rate - lg_rate + lg_extra) * k_p_fraction / k_p_scale;
-        update = exp_approx(arg);
-        pr_info_ratelimited(
-            "ccll: region B (atu=%u in [%u,%u]) inner=%llu exp_inner=%llu lg_extra=%llu arg=%llu update=%llu\n",
-            atu, atu_frac_lb, atu_frac_lb + atu_frac_range,
-            (unsigned long long)inner, (unsigned long long)exp_inner,
-            (unsigned long long)lg_extra, (unsigned long long)arg,
-            (unsigned long long)update);
-    } else if (atu <= atu_scale) {
-        u64 rate_scaled = ca->rate_kbps * FPS;
-        u64 lg_rate = log_approx(rate_scaled);
-        u64 frac = (atu_scale - atu);
-        u64 denom = (atu_scale - atu_frac_lb - atu_frac_range);
-        u64 lg_extra = log_approx(frac * FPS / (denom ? denom : 1));
-        u64 arg = (ln10e5_min_rate - lg_rate + lg_extra) * k_p_fraction / k_p_scale;
-        update = exp_approx(arg);
-        pr_info_ratelimited(
-            "ccll: region C (atu=%u..%u) frac=%llu denom=%llu lg_extra=%llu arg=%llu update=%llu\n",
-            atu_frac_lb + atu_frac_range, atu,
-            (unsigned long long)frac, (unsigned long long)denom,
-            (unsigned long long)lg_extra, (unsigned long long)arg,
-            (unsigned long long)update);
-    } else {
-        update = FPS;
-        pr_info_ratelimited("ccll: region D (atu=%u>scale=%u) update=%llu\n",
-                            atu, atu_scale, (unsigned long long)update);
+    /* ---------- compute update using piecewise T(ATU) ----------
+     *
+     * T(ATU) =
+     *   r_max,                                   if ATU < X
+     *   r_max * (r_min/r_max)^((ATU - X)/Y),     if X ≤ ATU ≤ X+Y
+     *   r_min * (1 - ATU)/(1 - X - Y),           if X+Y < ATU ≤ 1
+     *
+     * where ATU is scaled in [0, atu_scale], X=atu_frac_lb, Y=atu_frac_range.
+     * We compute in log-domain to avoid overflow:
+     *   log T = log r_max                               (region A)
+     *   log T = log r_max + ((ATU - X)/Y)*(log r_min - log r_max)   (region B)
+     *   log T = log r_min + log( (atu_scale-ATU)/(atu_scale-X-Y) )  (region C)
+     *
+     * Then U(r, maxATU) = (T/r)^{Kp} so:
+     *   log U = (log T - log r) * Kp
+     * and update = exp(log U).
+     */
+    {
+        /* Precompute log(rate) in 1e5-scale */
+        u64 rate_scaled = ca->rate_kbps * FPS;       /* r * 1e5 */
+        u64 lg_rate = log_approx(rate_scaled);       /* ln(r) * 1e5 */
+
+        /* r_min / r_max provided as ln(Kbps)*1e5 constants */
+        const u64 lg_rmin = ln10e5_min_rate;
+        const u64 lg_rmax = ln10e5_max_rate;
+
+        u64 lg_T;    /* ln(T) * 1e5 */
+
+        if (atu < atu_frac_lb) {
+            /* Region A: T = r_max */
+            lg_T = lg_rmax;
+            pr_info_ratelimited("ccll: T(ATU) region A: atu=%u < X=%u  lg_T=%llu\n",
+                                atu, atu_frac_lb, (unsigned long long)lg_T);
+        } else if (atu <= atu_frac_lb + atu_frac_range) {
+            /* Region B: geometric interpolation between r_max and r_min */
+            u64 delta = (u64)(atu - atu_frac_lb);
+            u64 span  = (u64)atu_frac_range ? (u64)atu_frac_range : 1ULL;
+            /* ((ATU - X)/Y) in 1e5-scale */
+            u64 frac1e5 = delta * 100000ULL / span;
+            /* lg_T = lg_rmax + frac * (lg_rmin - lg_rmax) */
+            s64 diff = (s64)lg_rmin - (s64)lg_rmax;
+            s64 add  = (s64)(diff * (s64)frac1e5 / 100000LL);
+            lg_T = (u64)((s64)lg_rmax + add);
+            pr_info_ratelimited("ccll: T(ATU) region B: atu=%u in [%u,%u] frac=%llu/1e5 lg_T=%llu\n",
+                                atu, atu_frac_lb, atu_frac_lb + atu_frac_range,
+                                (unsigned long long)frac1e5,
+                                (unsigned long long)lg_T);
+        } else {
+            /* Region C: linear tail from r_min toward zero */
+            u64 num   = (u64)(atu_scale - atu);
+            u64 den   = (u64)(atu_scale - atu_frac_lb - atu_frac_range);
+            if (den == 0) den = 1;  /* safety */
+            /* ln(num/den) = ln(num*1e5) - ln(den*1e5), but we reuse log_approx(num*1e5/den) */
+            u64 frac_scaled = (num * FPS) / den;   /* (num/den) * 1e5 */
+            u64 lg_frac     = log_approx(frac_scaled);   /* ln(frac) * 1e5 */
+            lg_T = lg_rmin + lg_frac;
+            pr_info_ratelimited("ccll: T(ATU) region C: atu=%u..%u num=%llu den=%llu lg_frac=%llu lg_T=%llu\n",
+                                atu_frac_lb + atu_frac_range, atu,
+                                (unsigned long long)num, (unsigned long long)den,
+                                (unsigned long long)lg_frac, (unsigned long long)lg_T);
+        }
+
+        /* U = (T/r)^{Kp} ; compute in log domain then exponentiate */
+        {
+            s64 lgU = ((s64)lg_T - (s64)lg_rate) * (s64)k_p_fraction / (s64)k_p_scale;
+            update = exp_approx((u64)(lgU > 0 ? lgU : 0)); /* guard tiny negatives */
+            pr_info_ratelimited("ccll: update from U=(T/r)^Kp: lgT=%llu lgR=%llu Kp=%u/%u update=%llu\n",
+                                (unsigned long long)lg_T, (unsigned long long)lg_rate,
+                                k_p_fraction, k_p_scale, (unsigned long long)update);
+        }
     }
 
     /* ---------- cwnd/rate update debug ---------- */
