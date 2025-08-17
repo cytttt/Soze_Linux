@@ -16,17 +16,6 @@
  * this behaves the same as the original Reno.
  */
 
-/*
- * IDE CONFIGURATION NOTE:
- * The following include errors are expected in IDE environments that don't have
- * Linux kernel headers configured. These headers are available during kernel
- * module compilation with proper kernel build environment.
- * 
- * To resolve IDE errors, configure your IDE with kernel header paths:
- * - Kernel headers location: /lib/modules/$(uname -r)/build/include
- * - Or use kernel source tree: /usr/src/linux/include
-*/
-
 // Linux kernel headers (available during kernel module compilation)
 #include <linux/kernel.h>     // Core kernel definitions
 #include <linux/types.h>      // Basic type definitions
@@ -199,12 +188,22 @@ static void ccllcc_state(struct sock *sk, u8 new_state) { }
 
 static void ccllcc_cwnd_event(struct sock *sk, enum tcp_ca_event ev) {
     struct ccllcc *ca = inet_csk_ca(sk);
+    struct tcp_sock *tp = tcp_sk(sk);
+    struct inet_sock *inet = inet_sk(sk);
+
+    /* Log cwnd_event with 4-tuple and cwnd/ssthresh; rate-limited to avoid spam */
+    pr_info_ratelimited("ccll: cwnd_event ev=%d s=%pI4:%u -> d=%pI4:%u cwnd=%u ssthresh=%u\n",
+                        (int)ev,
+                        &inet->inet_saddr, ntohs(inet->inet_sport),
+                        &inet->inet_daddr, ntohs(inet->inet_dport),
+                        tp->snd_cwnd, tp->snd_ssthresh);
     
     switch (ev) {
     case CA_EVENT_CWND_RESTART:
     case CA_EVENT_COMPLETE_CWR:
     case CA_EVENT_LOSS:
         ccllcc_reset(ca);
+        pr_info_ratelimited("ccll: cwnd_event reset done (ev=%d)\n", (int)ev);
         break;
     default:
         break;
@@ -456,7 +455,16 @@ static void ccllcc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 
 static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
     struct ccllcc *ca = inet_csk_ca(sk);
+    struct tcp_sock *tp = tcp_sk(sk);
+    struct inet_sock *inet = inet_sk(sk);
     u32 rtt;
+
+    /* Log incoming ACK sample (even duplicates will be filtered below) */
+    pr_info_ratelimited("ccll: pkts_acked pre rtt_us=%d inflight=%d s=%pI4:%u -> d=%pI4:%u cwnd=%u\n",
+                        sample->rtt_us, sample->in_flight,
+                        &inet->inet_saddr, ntohs(inet->inet_sport),
+                        &inet->inet_daddr, ntohs(inet->inet_dport),
+                        tp->snd_cwnd);
 
     /* Some calls are for duplicates without timestamps */
     if (sample->rtt_us < 0)
@@ -475,9 +483,12 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample) {
     
     /* Initialize rate_kbps if not set */
     if (ca->rate_kbps == 0) {
-        struct tcp_sock *tp = tcp_sk(sk);
         ca->rate_kbps = (tp->snd_cwnd * 1500 * 8 * 1000) / rtt;
     }
+
+    pr_info_ratelimited("ccll: pkts_acked post rtt_us=%u min_rtt=%u cwnd=%u rate_kbps=%llu\n",
+                        ca->curr_rtt, ca->min_rtt, tp->snd_cwnd,
+                        (unsigned long long)ca->rate_kbps);
 }
 
 static struct tcp_congestion_ops ccll __read_mostly = {
@@ -532,7 +543,7 @@ static ssize_t ccll_ctl_write(struct file *file, const char __user *buf,
     state.denom = update.denom;
     state.timestamp = update.timestamp;
     state.valid = update.valid;
-    
+
     pr_info_ratelimited("ccll_ctl: update %pI4:%u -> %pI4:%u numer=%u denom=%u valid=%u ts=%llu\n",
         &key.saddr, ntohs(key.sport), &key.daddr, ntohs(key.dport),
         state.numer, state.denom, state.valid,

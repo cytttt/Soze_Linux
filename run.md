@@ -16,14 +16,59 @@ sudo apt-get install -y clang llvm bpftool make gcc libbpf-dev iproute2 net-tool
 
 ---
 
-## Local test on ebpf
+## Local test
 
+- Terminals
+    - **Terminal 1**: CC-Setup, CC-Cleanup, Eval
+    - **Terminal 2 in Receiver shell**: Recv-Setup, Recv-Test
+    - **Terminal 3**: Send-Setup, Send-Test
+    - **Terminal 4**: Daemon
 
+```
+# Experiment flow
+    CC-Setup
+     ↓
+    Recv-Setup
+     ↓
+    Send-Setup
+     ↓
+    Daemon
+     ↓
+    Eval
+     ↓
+    Recv-Test
+     ↓
+    Send-Test
+     ↓
+    CC-Cleanup
+```
+
+### CC
+#### Setup
 ```
 cd linux
 make all ATU_TEST_MODE=1
 bash clean.bash
 bash setup.bash
+
+sudo insmod ccll.ko
+
+sudo dmesg | grep ccll_ctl
+# [185511.608338] ccll: ccll_ctl char device registered with major 508
+sudo mknod /dev/ccll_ctl c <MAJOR> 0
+sudo chmod 666 /dev/ccll_ctl
+sudo sysctl -w net.ipv4.tcp_congestion_control=ccll
+```
+
+#### Cleanup
+- 
+```
+make clean
+sudo bash clean.bash
+
+sudo sysctl -w net.ipv4.tcp_congestion_control=cubic
+sudo rmmod ccll
+sudo rm -rf /dev/ccll_ctl
 ```
 
 ### Receiver side
@@ -40,6 +85,7 @@ bash local-setup-rx.bash
 ```
 nc -lk -p 5000
 
+# check recv side map
 bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 ```
 
@@ -48,6 +94,8 @@ bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 #### setup
 ```
 bash local-setup-tx.bash
+# sudo ip netns exec send sysctl -w net.ipv4.tcp_congestion_control=ccll
+
 ```
 #### test
 ```
@@ -56,6 +104,9 @@ ip netns exec send bash -lc '
     ethtool -K veth-s rx off tx off tso off gso off gro off lro off
     dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000
 '
+
+# check sender side map
+bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ```
 
 ### Eval
@@ -71,20 +122,8 @@ ip netns exec recv tcpdump -vvv -s0 -XX 'src 10.0.0.1 and tcp'
 
 sudo cat /sys/kernel/debug/tracing/trace_pipe
 
-# check recv side map
-bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
-
-# check sender side map
-bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
 ```
-
-#### CC
+### daemon
 ```
-sudo insmod ccll.ko
-
-sudo dmesg | grep ccll_ctl
-# [185511.608338] ccll: ccll_ctl char device registered with major 508
-
-sudo mknod /dev/ccll_ctl c <MAJOR> 0
-sudo chmod 666 /dev/ccll_ctl
+sudo ./ccll_atu_daemon --map /sys/fs/bpf/tc/ack_atu_by_flow --dev /dev/ccll_ctl
 ```
