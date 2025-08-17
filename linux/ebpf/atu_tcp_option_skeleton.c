@@ -208,8 +208,11 @@ int rx_ingress_cache_atu(struct __sk_buff *skb) {
     fill_flow4_key(&k, ip, tcp);
 
     /* --- Scan TCP options for ATU (Kind=ATU_TCP_OPT_KIND, Len=ATU_TCP_OPT_LEN) --- */
-    __u32 opt_off = (__u32)((__u8 *)tcp - (__u8 *)((void *)0)) + 20; /* tcp base + 20 */
-    __u32 opt_end = (__u32)((__u8 *)tcp - (__u8 *)((void *)0)) + doff_bytes;
+    /* Verifier-friendly: avoid pointer-to-integer casts; use absolute offsets from skb start. */
+    __u32 ip_off  = 14;                         /* Ethernet header length */
+    __u32 tcp_off = ip_off + ihl_bytes;         /* start of TCP header */
+    __u32 opt_off = tcp_off + 20;               /* options start after fixed 20B TCP header */
+    __u32 opt_end = tcp_off + doff_bytes;       /* end of TCP header */
 
     __u32 numer_host = 0, denom_host = 0;
     int found = 0;
