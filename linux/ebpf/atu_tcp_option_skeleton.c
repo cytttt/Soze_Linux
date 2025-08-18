@@ -741,13 +741,13 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             folded = (folded & 0xFFFF) + (folded >> 16);
             folded = (folded & 0xFFFF) + (folded >> 16);
             __u16 csum16_host = (~folded) & 0xFFFF;   /* host-order 16-bit checksum */
-            __be16 csum_be = bpf_htons(csum16_host);  /* bytes to put on wire */
+            // __be16 csum_be = bpf_htons(csum16_host);  /* bytes to put on wire */
 
             bpf_printk("DBG folded=%x\n", folded);
-            bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16_host);
+            // bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16_host);
 
             /* Write big-endian checksum bytes into the TCP header field */
-            (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be, 2, 0);
+            (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum16_host, 2, 0);
 
             /* Read back for verification (rb[0] is the first on-wire byte) */
             {
