@@ -2,14 +2,32 @@
 
 ##### TABLE OF CONTENTS
 - [C2L2](#c2l2)
+  - [Repo Structures](#repo-structures)
   - [Workflow](#workflow)
     - [End-to-End Flow Summary](#end-to-end-flow-summary)
     - [P4 Switch (Forward Path)](#p4-switch-forward-path)
     - [Sender](#sender)
     - [Receiver](#receiver)
   - [Issues](#issues)
-  - [ebpf](#ebpf)
-  - [p4](#p4)
+  - [ebpf Notes](#ebpf)
+  - [p4 Notes](#p4)
+
+## Repo Structures
+```
+C2L2/
+├── linux/
+    ├── ebpf/
+        └── atu_tcp_option_skeletion.c
+    ├── daemon/
+        └── ccll_atu_daemon.c
+    └── ccll.c
+└── switch/
+    ├── common/
+        ├── headers.p4
+        ├── lib.p4
+        └── util.p4
+    └── c2l2.p4
+```
 ## Workflow
 - ATU = numer / denom
 ```
