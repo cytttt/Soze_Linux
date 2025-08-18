@@ -744,7 +744,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             // __be16 csum_be = bpf_htons(csum16_host);  /* bytes to put on wire */
 
             bpf_printk("DBG folded=%x\n", folded);
-            // bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16_host);
+            bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16_host);
 
             /* Write big-endian checksum bytes into the TCP header field */
             (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum16_host, 2, 0);
@@ -754,7 +754,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 __u8 rb[2] = {0, 0};
                 if (bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), rb, 2) == 0) {
                     __u16 rb_u16 = ((__u16)rb[0] << 8) | rb[1];
-                    bpf_printk("DBG wrote tcp csum host=%x be=%x \n",(unsigned)csum16_host, (unsigned)csum_be);
+                    // bpf_printk("DBG wrote tcp csum host=%x be=%x \n",(unsigned)csum16_host, (unsigned)csum_be);
                     bpf_printk("DBG wrote tcp csum bytes=%x %x\n", (unsigned)rb[0], (unsigned)rb[1]);
                 } else {
                     bpf_printk("DBG read-back of tcp csum failed\n");
