@@ -734,18 +734,32 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         }
 
         bpf_printk("DBG sum_before_fold=%x\n", sum);
-        /* Final fold to 16-bit Internet checksum and write back directly */
+        /* Final fold to 16-bit Internet checksum, then set via l4_csum_replace */
         {
-            /* fold 32-bit sum to 16 bits */
+            /* fold 32-bit sum to 16 bits (host-order) */
             __u32 folded = sum;
             folded = (folded & 0xFFFF) + (folded >> 16);
             folded = (folded & 0xFFFF) + (folded >> 16);
-            __u16 csum16 = (~folded) & 0xFFFF;
-            __be16 be = bpf_htons(csum16);
-            bpf_printk("DBG folded=%x\n", folded);
-            bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16);
-            (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &be, 2, 0);
-            bpf_printk("DBG write tcp csum=%x (host=%x)\n", (__u32)be, (__u32)csum16);
+            __u16 csum16_host = (~folded) & 0xFFFF;   /* host-order */
+
+            /* Use l4_csum_replace to set absolute value (old=0), host-order inputs */
+            int rc = bpf_l4_csum_replace(skb,
+                                         tcp_off + offsetof(struct tcphdr, check),
+                                         0,                      /* from=0 (old value) */
+                                         csum16_host,            /* to=host-order */
+                                         BPF_F_MARK_MANGLED_0);
+            if (rc) {
+                bpf_printk("DBG l4_csum_replace rc=%d\n", rc);
+            }
+
+            /* Debug: read back net-order field and show both views */
+            {
+                __be16 be_chk = 0;
+                if (bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &be_chk, 2) == 0) {
+                    __u16 host_chk = bpf_ntohs(be_chk);
+                    bpf_printk("DBG wrote tcp csum host=%x net=%x\n", (unsigned)host_chk, (unsigned)be_chk);
+                }
+            }
         }
     _skip_l4fix: ;
     }

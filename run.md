@@ -133,6 +133,7 @@ sudo ip netns exec recv bash -lc '
 # check hex option
 ip netns exec recv tcpdump -vvv -s0 -XX 'src 10.0.0.1 and tcp' 
 
+# check ebpf log
 sudo cat /sys/kernel/debug/tracing/trace_pipe
 
 ```
