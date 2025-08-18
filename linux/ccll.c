@@ -555,12 +555,14 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
                                 (unsigned long long)lg_T);
         } else {
             /* Region C: linear tail from r_min toward zero */
-            u64 num   = (u64)(atu_scale - atu);
-            u64 den   = (u64)(atu_scale - atu_frac_lb - atu_frac_range);
-            if (den == 0) den = 1;  /* safety */
+            u64 num, den, frac_scaled, lg_frac; /* C90: declare at top of block */
+            num = (u64)(atu_scale - atu);
+            den = (u64)(atu_scale - atu_frac_lb - atu_frac_range);
+            if (den == 0)
+                den = 1;  /* safety */
             /* ln(num/den) = ln(num*1e5) - ln(den*1e5), but we reuse log_approx(num*1e5/den) */
-            u64 frac_scaled = (num * FPS) / den;   /* (num/den) * 1e5 */
-            u64 lg_frac     = log_approx(frac_scaled);   /* ln(frac) * 1e5 */
+            frac_scaled = (num * FPS) / den;   /* (num/den) * 1e5 */
+            lg_frac     = log_approx(frac_scaled);   /* ln(frac) * 1e5 */
             lg_T = lg_rmin + lg_frac;
             pr_info_ratelimited("ccll: T(ATU) region C: atu=%u..%u num=%llu den=%llu lg_frac=%llu lg_T=%llu\n",
                                 atu_frac_lb + atu_frac_range, atu,
