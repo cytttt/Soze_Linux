@@ -754,9 +754,8 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 __u8 rb[2] = {0, 0};
                 if (bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), rb, 2) == 0) {
                     __u16 rb_u16 = ((__u16)rb[0] << 8) | rb[1];
-                    bpf_printk("DBG wrote tcp csum host=%x be=%x rb=%x bytes=%x %x\n",
-                               (unsigned)csum16_host, (unsigned)csum_be,
-                               (unsigned)rb_u16, (unsigned)rb[0], (unsigned)rb[1]);
+                    bpf_printk("DBG wrote tcp csum host=%x be=%x \n",(unsigned)csum16_host, (unsigned)csum_be);
+                    bpf_printk("DBG wrote tcp csum bytes=%x %x\n", (unsigned)rb[0], (unsigned)rb[1]);
                 } else {
                     bpf_printk("DBG read-back of tcp csum failed\n");
                 }
