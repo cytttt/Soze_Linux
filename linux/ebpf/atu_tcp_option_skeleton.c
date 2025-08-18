@@ -470,7 +470,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     __u16 w28 = 0, w30 = 0;
 
-    // ========== BEF：adjust_room ，T0 =============
+    // ========== BEF adjust_room ，T0 =============
     if (bpf_skb_load_bytes(skb, tcp_off + 28, &w28, 2) == 0 &&
         bpf_skb_load_bytes(skb, tcp_off + 30, &w30, 2) == 0) {
         bpf_printk("BEF w28=%x\n", (__u32)w28);
@@ -516,7 +516,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     __u32 tcp_t0 = ip_off + ihl_bytes;            /* original L4 start */
     __u32 tcp_t1 = tcp_t0 + ATU_WIRE_BYTES;       /* shifted L4 start  */
     bpf_printk("AFT SET T0=%u T1=%u\n", tcp_t0, tcp_t1);
-    // ========== AFT1: After adjust_room, T1 =============
+    // ========== AFT1 After adjust_room, T1 =============
     if (bpf_skb_load_bytes(skb, tcp_t1 + 28, &w28, 2) == 0 &&
         bpf_skb_load_bytes(skb, tcp_t1 + 30, &w30, 2) == 0) {
         bpf_printk("AFT1 w28=%x\n", (__u32)w28);
@@ -579,7 +579,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         /* From here on, use tcp_off = T0 as the TCP start. */
         tcp_off = tcp_t0;
     }
-    // ========== AFT0：after move header forward to T0 =============
+    // ========== AFT0 after move header forward to T0 =============
     if (bpf_skb_load_bytes(skb, tcp_off + 28, &w28, 2) == 0 &&
         bpf_skb_load_bytes(skb, tcp_off + 30, &w30, 2) == 0) {
         bpf_printk("AFT0 w28=%x\n", (__u32)w28);

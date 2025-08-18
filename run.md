@@ -48,17 +48,9 @@ sudo apt-get install -y clang llvm bpftool make gcc libbpf-dev iproute2 net-tool
 ```
 cd linux
 make all ATU_TEST_MODE=1
-bash clean.bash
-bash setup.bash
-
-sudo insmod ccll.ko
-
-sudo dmesg | grep ccll_ctl
-# [185511.608338] ccll: ccll_ctl char device registered with major 508
-sudo mknod /dev/ccll_ctl c <MAJOR> 0
-# sudo mknod /dev/ccll_ctl c 508 0
-sudo chmod 666 /dev/ccll_ctl
-sudo sysctl -w net.ipv4.tcp_congestion_control=ccll
+sudo bash clean.bash
+sudo bash setup.bash
+sudo bash setup-ccll.bash
 ```
 
 #### Cleanup
@@ -101,7 +93,7 @@ bash local-setup-tx.bash
 #### test
 ```
 # ignore cksum
-ip netns exec send bash -lc '
+sudo ip netns exec send bash -lc '
     ethtool -K veth-s rx off tx off tso off gso off gro off lro off
     dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000
 '
