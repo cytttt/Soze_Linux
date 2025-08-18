@@ -734,30 +734,31 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         }
 
         bpf_printk("DBG sum_before_fold=%x\n", sum);
-        /* Final fold to 16-bit Internet checksum, then set via l4_csum_replace */
+        /* Final fold to 16-bit Internet checksum and write back directly */
         {
-            /* fold 32-bit sum to 16 bits (host-order) */
+            /* fold 32-bit sum to 16 bits */
             __u32 folded = sum;
             folded = (folded & 0xFFFF) + (folded >> 16);
             folded = (folded & 0xFFFF) + (folded >> 16);
-            __u16 csum16_host = (~folded) & 0xFFFF;   /* host-order */
+            __u16 csum16_host = (~folded) & 0xFFFF;   /* host-order 16-bit checksum */
+            __be16 csum_be = bpf_htons(csum16_host);  /* bytes to put on wire */
 
-            /* Use l4_csum_replace to set absolute value (old=0), host-order inputs */
-            int rc = bpf_l4_csum_replace(skb,
-                                         tcp_off + offsetof(struct tcphdr, check),
-                                         0,                      /* from=0 (old value) */
-                                         csum16_host,            /* to=host-order */
-                                         BPF_F_MARK_MANGLED_0);
-            if (rc) {
-                bpf_printk("DBG l4_csum_replace rc=%d\n", rc);
-            }
+            bpf_printk("DBG folded=%x\n", folded);
+            bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16_host);
 
-            /* Debug: read back net-order field and show both views */
+            /* Write big-endian checksum bytes into the TCP header field */
+            (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum_be, 2, 0);
+
+            /* Read back for verification (rb[0] is the first on-wire byte) */
             {
-                __be16 be_chk = 0;
-                if (bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &be_chk, 2) == 0) {
-                    __u16 host_chk = bpf_ntohs(be_chk);
-                    bpf_printk("DBG wrote tcp csum host=%x net=%x\n", (unsigned)host_chk, (unsigned)be_chk);
+                __u8 rb[2] = {0, 0};
+                if (bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), rb, 2) == 0) {
+                    __u16 rb_u16 = ((__u16)rb[0] << 8) | rb[1];
+                    bpf_printk("DBG wrote tcp csum host=%x be=%x rb=%x bytes=%x %x\n",
+                               (unsigned)csum16_host, (unsigned)csum_be,
+                               (unsigned)rb_u16, (unsigned)rb[0], (unsigned)rb[1]);
+                } else {
+                    bpf_printk("DBG read-back of tcp csum failed\n");
                 }
             }
         }
