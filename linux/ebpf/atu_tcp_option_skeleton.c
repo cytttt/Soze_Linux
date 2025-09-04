@@ -595,10 +595,18 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
     /* incremental replace of tot_len in IP header checksum */
+    /*
     bpf_l3_csum_replace(skb,
                         ip_off + offsetof(struct iphdr, check),
                         (__be32)tot_be, (__be32)new_tot_be,
                         sizeof(__u16));
+    */
+    {
+        __u16 zero = 0;
+        (void)bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, check),
+                                &zero, 2, 0);
+    }
+
 
     /* ----------------------- L4: TCP header/option build ----------------------- */
     /* Compose the ATU option we are inserting */
@@ -661,108 +669,112 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         return BPF_OK;
     }
 
-    /* Recompute TCP checksum after we updated IP tot_len, TCP doff and wrote options.
-     * NOTE: tx offloads must be disabled in tests, otherwise tcpdump will still show "incorrect".
-     */
-    /* L4 Checksum (verifier-friendly: only constant-sized chunks) */
+    /* Recompute TCP checksum after we updated IP tot_len, TCP doff and wrote options. */
     {
-        /* new TCP header length in bytes */
-        __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;
-        bpf_printk("DBG doff_new=%u\n", doff_new);
-        bpf_printk("DBG tcp_off=%u\n", tcp_off);
-
-        /* Zero TCP checksum field in-packet first */
         __u16 zero = 0;
-        (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &zero, 2, 0);
-        bpf_printk("DBG zeroed tcp csum field\n");
-
-        /* Build IPv4 pseudo-header (12 bytes, network order bytes copied verbatim) */
-        __u8 ph[12] = {0};
-        if (bpf_skb_load_bytes(skb, ip_off + 12, &ph[0], 4) < 0) goto _skip_l4fix; /* src */
-        if (bpf_skb_load_bytes(skb, ip_off + 16, &ph[4], 4) < 0) goto _skip_l4fix; /* dst */
-        ph[8]  = 0;
-        ph[9]  = IPPROTO_TCP;
-        {
-            __u16 tcp_len = (__u16)(new_tot - ihl_bytes);
-            *(__be16 *)&ph[10] = bpf_htons(tcp_len);
-            bpf_printk("DBG tcp_len=%u\n", (unsigned)tcp_len);
-        }
-
-        /* Incremental checksum build: pseudo-header first */
-        __u32 sum = 0;
-        sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), sum);
-        bpf_printk("DBG sum_after_ph=%x\n", sum);
-
-        /* Then the TCP header (now enlarged). Feed fixed 4-byte words to csum_diff(). */
-        {
-            __u32 i = 0;
-            /* process the TCP header in 4-byte chunks, but read bytes one-by-one */
-            for (int step = 0; step < 15; step++) { /* 15 * 4 = 60 max header */
-                if (i >= doff_new) break;
-
-                __u8 blk[4] = {0,0,0,0};
-                __u32 rem = doff_new - i; /* remaining header bytes */
-                if (rem > 4) rem = 4;
-
-                /* read up to 4 bytes verbatim from the packet */
-                for (int k = 0; k < 4; k++) {
-                    if ((__u32)k < rem) {
-                        (void)bpf_skb_load_bytes(skb, tcp_off + i + k, &blk[k], 1);
-                    }
-                }
-
-                /* ensure checksum field bytes (offset 16..17) are zeroed before summing */
-                if (i <= 16 && 16 < i + rem) {
-                    int off_in_blk = 16 - (int)i; /* 0..3 */
-                    if (off_in_blk >= 0 && off_in_blk < 4) blk[off_in_blk] = 0;
-                    if (off_in_blk + 1 >= 0 && off_in_blk + 1 < 4) blk[off_in_blk + 1] = 0;
-                }
-
-                /* debug: print the raw 4 bytes and the assembled BE word */
-                {
-                    __u32 be_word = 0;
-                    __builtin_memcpy(&be_word, blk, 4);
-                    bpf_printk("DBG blk@%u be=%x\n", (unsigned)i, be_word);
-                    bpf_printk("DBG blk bytes %x %x %x\n", (__u32)blk[0], (__u32)blk[1], (__u32)blk[2]);
-                    bpf_printk("DBG blk byte3 %x\n", (__u32)blk[3]);
-                    sum = bpf_csum_diff(NULL, 0, &be_word, 4, sum);
-                    bpf_printk("DBG sum_i=%x\n", sum);
-                }
-
-                i += 4;
-            }
-        }
-
-        bpf_printk("DBG sum_before_fold=%x\n", sum);
-        /* Final fold to 16-bit Internet checksum and write back directly */
-        {
-            /* fold 32-bit sum to 16 bits */
-            __u32 folded = sum;
-            folded = (folded & 0xFFFF) + (folded >> 16);
-            folded = (folded & 0xFFFF) + (folded >> 16);
-            __u16 csum16_host = (~folded) & 0xFFFF;   /* host-order 16-bit checksum */
-            // __be16 csum_be = bpf_htons(csum16_host);  /* bytes to put on wire */
-
-            bpf_printk("DBG folded=%x\n", folded);
-            bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16_host);
-
-            /* Write big-endian checksum bytes into the TCP header field */
-            (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum16_host, 2, 0);
-
-            /* Read back for verification (rb[0] is the first on-wire byte) */
-            {
-                __u8 rb[2] = {0, 0};
-                if (bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), rb, 2) == 0) {
-                    __u16 rb_u16 = ((__u16)rb[0] << 8) | rb[1];
-                    // bpf_printk("DBG wrote tcp csum host=%x be=%x \n",(unsigned)csum16_host, (unsigned)csum_be);
-                    bpf_printk("DBG wrote tcp csum bytes=%x %x\n", (unsigned)rb[0], (unsigned)rb[1]);
-                } else {
-                    bpf_printk("DBG read-back of tcp csum failed\n");
-                }
-            }
-        }
-    _skip_l4fix: ;
+        (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check),
+                                  &zero, 2, 0);
     }
+    
+    /* L4 Checksum (verifier-friendly: only constant-sized chunks) */
+    // {
+    //     /* new TCP header length in bytes */
+    //     __u32 doff_new = doff_bytes + ATU_WIRE_BYTES;
+    //     bpf_printk("DBG doff_new=%u\n", doff_new);
+    //     bpf_printk("DBG tcp_off=%u\n", tcp_off);
+
+    //     /* Zero TCP checksum field in-packet first */
+    //     __u16 zero = 0;
+    //     (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &zero, 2, 0);
+    //     bpf_printk("DBG zeroed tcp csum field\n");
+
+    //     /* Build IPv4 pseudo-header (12 bytes, network order bytes copied verbatim) */
+    //     __u8 ph[12] = {0};
+    //     if (bpf_skb_load_bytes(skb, ip_off + 12, &ph[0], 4) < 0) goto _skip_l4fix; /* src */
+    //     if (bpf_skb_load_bytes(skb, ip_off + 16, &ph[4], 4) < 0) goto _skip_l4fix; /* dst */
+    //     ph[8]  = 0;
+    //     ph[9]  = IPPROTO_TCP;
+    //     {
+    //         __u16 tcp_len = (__u16)(new_tot - ihl_bytes);
+    //         *(__be16 *)&ph[10] = bpf_htons(tcp_len);
+    //         bpf_printk("DBG tcp_len=%u\n", (unsigned)tcp_len);
+    //     }
+
+    //     /* Incremental checksum build: pseudo-header first */
+    //     __u32 sum = 0;
+    //     sum = bpf_csum_diff(NULL, 0, (__be32 *)(void *)ph, sizeof(ph), sum);
+    //     bpf_printk("DBG sum_after_ph=%x\n", sum);
+
+    //     /* Then the TCP header (now enlarged). Feed fixed 4-byte words to csum_diff(). */
+    //     {
+    //         __u32 i = 0;
+    //         /* process the TCP header in 4-byte chunks, but read bytes one-by-one */
+    //         for (int step = 0; step < 15; step++) { /* 15 * 4 = 60 max header */
+    //             if (i >= doff_new) break;
+
+    //             __u8 blk[4] = {0,0,0,0};
+    //             __u32 rem = doff_new - i; /* remaining header bytes */
+    //             if (rem > 4) rem = 4;
+
+    //             /* read up to 4 bytes verbatim from the packet */
+    //             for (int k = 0; k < 4; k++) {
+    //                 if ((__u32)k < rem) {
+    //                     (void)bpf_skb_load_bytes(skb, tcp_off + i + k, &blk[k], 1);
+    //                 }
+    //             }
+
+    //             /* ensure checksum field bytes (offset 16..17) are zeroed before summing */
+    //             if (i <= 16 && 16 < i + rem) {
+    //                 int off_in_blk = 16 - (int)i; /* 0..3 */
+    //                 if (off_in_blk >= 0 && off_in_blk < 4) blk[off_in_blk] = 0;
+    //                 if (off_in_blk + 1 >= 0 && off_in_blk + 1 < 4) blk[off_in_blk + 1] = 0;
+    //             }
+
+    //             /* debug: print the raw 4 bytes and the assembled BE word */
+    //             {
+    //                 __u32 be_word = 0;
+    //                 __builtin_memcpy(&be_word, blk, 4);
+    //                 bpf_printk("DBG blk@%u be=%x\n", (unsigned)i, be_word);
+    //                 bpf_printk("DBG blk bytes %x %x %x\n", (__u32)blk[0], (__u32)blk[1], (__u32)blk[2]);
+    //                 bpf_printk("DBG blk byte3 %x\n", (__u32)blk[3]);
+    //                 sum = bpf_csum_diff(NULL, 0, &be_word, 4, sum);
+    //                 bpf_printk("DBG sum_i=%x\n", sum);
+    //             }
+
+    //             i += 4;
+    //         }
+    //     }
+
+    //     bpf_printk("DBG sum_before_fold=%x\n", sum);
+    //     /* Final fold to 16-bit Internet checksum and write back directly */
+    //     {
+    //         /* fold 32-bit sum to 16 bits */
+    //         __u32 folded = sum;
+    //         folded = (folded & 0xFFFF) + (folded >> 16);
+    //         folded = (folded & 0xFFFF) + (folded >> 16);
+    //         __u16 csum16_host = (~folded) & 0xFFFF;   /* host-order 16-bit checksum */
+    //         // __be16 csum_be = bpf_htons(csum16_host);  /* bytes to put on wire */
+
+    //         bpf_printk("DBG folded=%x\n", folded);
+    //         bpf_printk("DBG csum16(host)=%x\n", (unsigned)csum16_host);
+
+    //         /* Write big-endian checksum bytes into the TCP header field */
+    //         (void)bpf_skb_store_bytes(skb, tcp_off + offsetof(struct tcphdr, check), &csum16_host, 2, 0);
+
+    //         /* Read back for verification (rb[0] is the first on-wire byte) */
+    //         {
+    //             __u8 rb[2] = {0, 0};
+    //             if (bpf_skb_load_bytes(skb, tcp_off + offsetof(struct tcphdr, check), rb, 2) == 0) {
+    //                 __u16 rb_u16 = ((__u16)rb[0] << 8) | rb[1];
+    //                 // bpf_printk("DBG wrote tcp csum host=%x be=%x \n",(unsigned)csum16_host, (unsigned)csum_be);
+    //                 bpf_printk("DBG wrote tcp csum bytes=%x %x\n", (unsigned)rb[0], (unsigned)rb[1]);
+    //             } else {
+    //                 bpf_printk("DBG read-back of tcp csum failed\n");
+    //             }
+    //         }
+    //     }
+    // _skip_l4fix: ;
+    // }
 
     /* Optional: log final IP total length and TCP doff */
     {

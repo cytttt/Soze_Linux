@@ -17,5 +17,8 @@ tc qdisc del dev veth-r clsact 2>/dev/null || true
 tc qdisc add dev veth-r clsact 
 tc filter add dev veth-r ingress pref 10 bpf da pinned /sys/fs/bpf/atu_rx/classifier_rx_ingress_cache_atu
 tc filter add dev veth-r egress  pref 10 bpf da pinned /sys/fs/bpf/atu_rx/classifier_rx_egress_add_ack_opt
+# Recompute IPv4 IP+TCP checksums after our eBPF edits (prevents later stages from
+# using stale csum_start/csum_offset and touching TS fields).
+tc filter add dev veth-r egress  pref 20 protocol ip flower ip_proto tcp action csum ip tcp
 tc -s filter show dev veth-r ingress
 tc -s filter show dev veth-r egress
