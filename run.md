@@ -58,10 +58,6 @@ sudo bash setup-ccll.bash
 ```
 make clean
 sudo bash clean.bash
-
-sudo sysctl -w net.ipv4.tcp_congestion_control=cubic
-sudo rmmod ccll
-sudo rm -rf /dev/ccll_ctl
 ```
 
 ### Receiver side

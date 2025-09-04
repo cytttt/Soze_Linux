@@ -1,6 +1,6 @@
 #!/bin/bash
 ip netns exec send sh -lc '
-  ethtool -K veth-s tso off gso off gro off lro off || true
+  ethtool -K veth-s rx off tx off tso off gso off gro off lro off || true
   tc qdisc del dev veth-s clsact 2>/dev/null || true
   tc qdisc add dev veth-s clsact
   tc filter add dev veth-s ingress pref 10 bpf da obj ebpf/atu_tx.o sec classifier/tx_ingress_parse_ack_opt

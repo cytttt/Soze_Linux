@@ -71,7 +71,7 @@ Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
          ↓
      ccll_atu_daemon (userspace)
          ↓
-     /dev/ccll_ctl (char device)
+     Write to /dev/ccll_ctl (char device)
          ↓
      C2L2 kernel module
          ↓
@@ -147,7 +147,7 @@ Runs on the sender's ingress path to parse ATU information from incoming ACK pac
 
 - **Checksum handling**: Cannot directly use `bpf_l4_csum_replace()` to update L4 checksum because the checksum value in the socket buffer is a fixed number rather than the original packet checksum. The solution is to zero out the checksum field first, then recalculate the entire checksum from scratch including pseudo header, TCP header, and options using `bpf_csum_diff()` and `bpf_skb_store_bytes()`. 
 
-- **Timing issue**: Howwvr ,teh  TSineinal TCP othp origs als modified afi egress prog checksum calculation atmaks stineffective
+- **Timing issue**: However, the TSecr signal in TCP options is modified after the egress program, which will affect the checksum calculation. Hence, the checksum calculation at egress stage is not effective.
 
 - **Why not use BPF_F_RECOMPUTE_CSUM**: The `bpf_skb_store_bytes()` function with `BPF_F_RECOMPUTE_CSUM` flag only adjusts the checksum for the impact of the newly stored bytes. However, as mentioned earlier, the original checksum field in the socket buffer is already incorrect. Since we need to manually zero out the checksum and include the pseudo header and TCP header in the calculation anyway, using the flag provides no convenience. Additionally, calculating all checksums within the same program section makes debugging more straightforward.
 
