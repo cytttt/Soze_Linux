@@ -28,6 +28,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/tcp.h>
+#include <linux/pkt_cls.h>  // for TC_ACT_PIPE/TC_ACT_OK/TC_ACT_SHOT
 
 #include <linux/in.h>
 #include <stdbool.h>
@@ -310,51 +311,51 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     __u32 payload_len = 0;
 
     if (bpf_skb_load_bytes(skb, 12, &eth_proto, sizeof(eth_proto)) < 0)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     eth_proto = bpf_ntohs(eth_proto);
     if (eth_proto != ETH_P_IP)
-        return BPF_OK;
+        return TC_ACT_PIPE;
 
     /* IPv4 version / IHL */
     if (bpf_skb_load_bytes(skb, ip_off + 0, &vihl, 1) < 0)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     if ((vihl & 0xF0) != 0x40)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     ihl_bytes = (vihl & 0x0F) * 4;
     if (ihl_bytes < 20)
-        return BPF_OK;
+        return TC_ACT_PIPE;
 
     /* Protocol = TCP */
     if (bpf_skb_load_bytes(skb, ip_off + 9, &proto, 1) < 0)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     if (proto != IPPROTO_TCP)
-        return BPF_OK;
+        return TC_ACT_PIPE;
 
     /* IPv4 total length */
     if (bpf_skb_load_bytes(skb, ip_off + 2, &tot_be, 2) < 0)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     __u16 tot = bpf_ntohs(tot_be);
 
 
     tcp_off = ip_off + ihl_bytes;
     if (bpf_skb_load_bytes(skb, tcp_off + 12, &doff_byte, 1) < 0)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     if (bpf_skb_load_bytes(skb, tcp_off + 13, &flags, 1) < 0)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     doff_bytes = ((__u32)(doff_byte >> 4) & 0xF) * 4;
     if (doff_bytes < 20)
-        return BPF_OK;
+        return TC_ACT_PIPE;
 
     if (!(flags & 0x10))           /* ACK bit */
-        return BPF_OK;
+        return TC_ACT_PIPE;
     if (flags & (0x01 | 0x02 | 0x04 | 0x08))
-        return BPF_OK;
+        return TC_ACT_PIPE;
 
     if (tot < ihl_bytes + doff_bytes)
-        return BPF_OK;
+        return TC_ACT_PIPE;
     payload_len = tot - ihl_bytes - doff_bytes;
     if (payload_len != 0)
-        return BPF_OK;
+        return TC_ACT_PIPE;
 
     bpf_printk("EGRESS pure ACK, doff=%u, room=%u\n", doff_bytes, 60 - doff_bytes);
     
@@ -389,7 +390,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         bpf_printk("flow s=%x d=%x\n", k.saddr, k.daddr);
         bpf_printk("ports %u->%u\n", bpf_ntohs(k.sport), bpf_ntohs(k.dport));
 #else
-        return BPF_OK;
+        return TC_ACT_PIPE;
 #endif
     } else {
         bpf_printk("EGRESS found ATU %u/%u\n", atu_ptr->numer, atu_ptr->denom);
@@ -399,7 +400,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
 
     opt_room = 60 - doff_bytes;
     if (opt_room < ATU_WIRE_BYTES)
-        return BPF_OK;
+        return TC_ACT_PIPE;
 
 
     /* ==== DEBUG BEFORE ADJUST (T0 = ip_off + ihl) ==== */
@@ -460,11 +461,11 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         __u32 need = tcp_off + doff_bytes; /* end of current TCP header */
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) before adjust\n", need, skb->len);
-            return BPF_OK;
+            return TC_ACT_PIPE;
         }
         if (bpf_skb_pull_data(skb, need)) {
             bpf_printk("EGRESS pull_data fail before adjust @%u\n", need);
-            return BPF_OK;
+            return TC_ACT_PIPE;
         }
     }
 
@@ -484,7 +485,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         // BPF_F_ADJ_ROOM_FIXED_GSO | BPF_F_ADJ_ROOM_NO_CSUM_RESET);
     if (adj_ret) {
         bpf_printk("EGRESS adjust_room failed: %d\n", adj_ret);
-        return BPF_OK;
+        return TC_ACT_PIPE;
     }
     bpf_printk("EGRESS adjust_room ok (+%u bytes)\n", (unsigned)ATU_WIRE_BYTES);
 
@@ -528,11 +529,11 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         __u32 need = tcp_t1 + doff_bytes; /* end of old header after shift */
         if (need > (__u32)skb->len) {
             bpf_printk("EGRESS need(%u) > skb->len(%u) after adjust\n", need, skb->len);
-            return BPF_OK;
+            return TC_ACT_PIPE;
         }
         if (bpf_skb_pull_data(skb, need)) {
             bpf_printk("EGRESS pull_data fail after adjust @%u\n", need);
-            return BPF_OK;
+            return TC_ACT_PIPE;
         }
     }
 
@@ -540,7 +541,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
      * a stable snapshot (helps avoid timing/overlap surprises).
      */
     {
-        if (doff_bytes > 60) return BPF_OK; /* defensive */
+        if (doff_bytes > 60) return TC_ACT_PIPE; /* defensive */
         __u8 tcp_copy[60] = {0};
         /* Read old header from T1 into tcp_copy */
         for (int i = 0; i < 60; i++) {
@@ -549,7 +550,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             __u8 b = 0;
             if (bpf_skb_load_bytes(skb, tcp_t1 + i, &b, 1) < 0) {
                 bpf_printk("EGRESS load @T1+%d failed\n", i);
-                return BPF_OK;
+                return TC_ACT_PIPE;
             }
             tcp_copy[i] = b;
         }
@@ -565,7 +566,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
                 break;
             if (bpf_skb_store_bytes(skb, tcp_t0 + i, &tcp_copy[i], 1, 0)) {
                 bpf_printk("EGRESS store @T0+%d failed\n", i);
-                return BPF_OK;
+                return TC_ACT_PIPE;
             }
         }
         /* Debug: read back from T0 to confirm write */
@@ -592,7 +593,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (bpf_skb_store_bytes(skb, ip_off + offsetof(struct iphdr, tot_len),
                             &new_tot_be, sizeof(new_tot_be), 0)) {
         bpf_printk("EGRESS store tot_len failed\n");
-        return BPF_OK;
+        return TC_ACT_PIPE;
     }
     /* incremental replace of tot_len in IP header checksum */
     /*
@@ -630,7 +631,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     __u8 new_doff_byte  = (new_doff_words << 4) | (doff_byte & 0x0F);
     if (bpf_skb_store_bytes(skb, tcp_off + 12, &new_doff_byte, 1, 0)) {
         bpf_printk("EGRESS store doff failed\n");
-        return BPF_OK;
+        return TC_ACT_PIPE;
     }
     /* Debug/sanity: read back the updated doff byte and verify (validation only) */
     {
@@ -642,7 +643,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             /* If the nybble is unexpectedly small (< 20), bail out to avoid bad packets */
             if (rb_doff_bytes < 20) {
                 bpf_printk("EGRESS doff too small after update, abort\n");
-                return BPF_OK;
+                return TC_ACT_PIPE;
             }
         }
     }
@@ -654,11 +655,11 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
         __u32 need_final = tcp_off + expected_new_doff; /* tcp_off is T0 */
         if (need_final > (__u32)skb->len) {
             bpf_printk("EGRESS need_final(%u) > skb->len(%u)\n", need_final, skb->len);
-            return BPF_OK;
+            return TC_ACT_PIPE;
         }
         if (bpf_skb_pull_data(skb, need_final)) {
             bpf_printk("EGRESS pull_data fail at final @%u\n", need_final);
-            return BPF_OK;
+            return TC_ACT_PIPE;
         }
     }
     /* Write option at end of the *old* TCP header; the gap from adjust_room
@@ -666,7 +667,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
     if (bpf_skb_store_bytes(skb, tcp_off + doff_bytes,
                             opt_buf, ATU_WIRE_BYTES, 0)) {
         bpf_printk("EGRESS write opt failed\n");
-        return BPF_OK;
+        return TC_ACT_PIPE;
     }
 
     /* Recompute TCP checksum after we updated IP tot_len, TCP doff and wrote options. */
@@ -786,7 +787,7 @@ int rx_egress_add_ack_opt(struct __sk_buff *skb)
             bpf_printk("EGRESS final tot=%u, doff=%u\n", final_tot, final_doff);
         }
     }
-    return BPF_OK;
+    return TC_ACT_PIPE;
 }
 #endif
 
