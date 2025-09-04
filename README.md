@@ -91,7 +91,9 @@ Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
          ↓
      Add ATU option to TCP header (Kind=253, Len=10)
          ↓
-     Update IP/TCP lengths and checksums
+     Update IP/TCP lengths
+     (X) Update checksums manually
+     (O) eBPF filter checksum action
          ↓
      Backward ack to receiver
 ```
