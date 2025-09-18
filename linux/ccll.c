@@ -99,7 +99,7 @@ module_param(atu_timeout_ms, uint, 0644);
 MODULE_PARM_DESC(atu_timeout_ms, "ATU data timeout in milliseconds");
 
 /* Per-flow weight control (multiplicative factor on T), scaled by 1e5 */
-static u32 weight_scale __read_mostly = 100000;     /* 1.0 * 1e5 */
+static u32 weight_scale __maybe_unused __read_mostly = 100000;     /* 1.0 * 1e5 */
 static u32 default_weight __read_mostly = 100000;   /* default 1.0x */
 module_param(default_weight, uint, 0644);
 MODULE_PARM_DESC(default_weight, "Default per-flow weight (1e5 = 1.0x)");
@@ -162,6 +162,7 @@ static bool parse_ack_atu_and_key(struct sk_buff *skb,
                                   u32 *numer, u32 *denom,
                                   struct atu_flow_key *key_out);
 static struct nf_hook_ops ccll_nf_ops;
+static bool get_atu_flow_key(struct sock *sk, struct atu_flow_key *key);
 
 
 /* ================================= [4] Globals ================================= */
@@ -324,14 +325,6 @@ static const struct nla_policy ccll_genl_policy[CCLL_A_MAX + 1] = {
     [CCLL_A_WEIGHT] = { .type = NLA_U32 },
 };
 
-static struct genl_family ccll_genl_family = {
-    .hdrsize = 0,
-    .name    = CCLL_GENL_FAMILY_NAME,
-    .version = CCLL_GENL_VERSION,
-    .maxattr = CCLL_A_MAX,
-    .netnsok = true,
-    .module  = THIS_MODULE,
-};
 
 static int ccll_genl_set_weight(struct sk_buff *skb, struct genl_info *info)
 {
@@ -385,19 +378,23 @@ static const struct genl_ops ccll_genl_ops[] = {
     },
 };
 
+static struct genl_family ccll_genl_family = {
+    .hdrsize = 0,
+    .name    = CCLL_GENL_FAMILY_NAME,
+    .version = CCLL_GENL_VERSION,
+    .maxattr = CCLL_A_MAX,
+    .ops     = ccll_genl_ops,
+    .n_ops   = ARRAY_SIZE(ccll_genl_ops),
+    .netnsok = true,
+    .module  = THIS_MODULE,
+};
+
 static int ccll_genl_register(void)
 {
     int ret;
-
     ret = genl_register_family(&ccll_genl_family);
     if (ret)
         return ret;
-
-    ret = genl_register_ops(&ccll_genl_family, &ccll_genl_ops[0]);
-    if (ret) {
-        genl_unregister_family(&ccll_genl_family);
-        return ret;
-    }
     pr_info("ccll: genetlink weight control registered\n");
     return 0;
 }
