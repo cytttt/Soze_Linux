@@ -120,3 +120,22 @@ sudo cat /sys/kernel/debug/tracing/trace_pipe
 ```
 sudo ./ccll_atu_daemon --map /sys/fs/bpf/tc/ack_atu_by_flow --dev /dev/ccll_ctl --interval-ms 50
 ```
+
+### python
+```
+sudo python3 tools/set_weight.py --saddr 10.0.0.2 --sport 5000 --daddr 10.0.0.1 --dport 40000 --weight 150000
+```
+
+### libnl
+```
+sudo apt-get update
+sudo apt-get install -y libnl-3-dev libnl-genl-3-dev libnl-utils
+# check
+genl-ctrl-list | grep -i ccll
+
+
+gcc -O2 -Wall -I/usr/include/libnl3 -o tools/set_weight tools/set_weight.c -lnl-3 -lnl-genl-3
+sudo ./tools/set_weight --saddr 10.0.0.2 --sport 5000 \
+    --daddr 10.0.0.1 --dport 40000 \
+    --weight 150000
+```
