@@ -65,15 +65,15 @@ Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
 
 ### Sender
 ```
-     TCP eBPF (tc/tx_ingress_parse_ack_opt)
+     TCP ACK packet with ATU option (from receiver)
          ↓
-     Update BPF map (/sys/fs/bpf/ack_atu_by_flow)
+     Netfilter hook (NF_INET_LOCAL_IN)
          ↓
-     ccll_atu_daemon (userspace)
+     Parse ATU option from TCP header
          ↓
-     Write to /dev/ccll_ctl (char device)
+     Update per-flow hash table (atu_flow_table)
          ↓
-     C2L2 kernel module
+     C2L2 kernel module (ccll.c)
          ↓
      Congestion Control
 ```

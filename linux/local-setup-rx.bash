@@ -1,7 +1,9 @@
 #!/bin/bash
-umount /sys/fs/bpf 2>/dev/null || true
-mkdir -p /sys/fs/bpf && mount -t bpf bpf /sys/fs/bpf
-mkdir -p /sys/fs/bpf/tc /sys/fs/bpf/atu_rx 
+if ! mountpoint -q /sys/fs/bpf; then
+  mkdir -p /sys/fs/bpf
+  mount -t bpf bpf /sys/fs/bpf
+fi
+mkdir -p /sys/fs/bpf/tc /sys/fs/bpf/atu_rx
 
 bpftool prog loadall ebpf/atu_rx.o /sys/fs/bpf/atu_rx
 

@@ -1,151 +1,165 @@
-#!/bin/bash
+
+
+#!/usr/bin/env bash
+# Host-wide setup for CCLL on a real machine (no netns)
+# - Sender role: loads ccll.ko (Netfilter ACK parser) and sets CC
+# - Receiver role: attaches eBPF (ingress cache ATU, egress add ACK option)
+#
+# Usage examples:
+#   sudo bash linux/host-setup.bash --role sender \
+#        --iface eth0 \
+#        --module linux/ccll.ko
+#
+#   sudo bash linux/host-setup.bash --role receiver \
+#        --iface eth0 \
+#        --bpf ebpf/atu_rx.o
+#
+# If --iface is omitted, the script will auto-detect the default NIC used for outbound traffic.
+# All parameters are optional with sensible defaults; run with -h to see options.
+
 set -euo pipefail
 
-# =============================================================
-# Host setup (NO namespaces): attach RX/TX eBPF on a real NIC
-# Usage: sudo ./linux/host-setup.bash <IFACE>
-# Example: sudo ./linux/host-setup.bash eno1
-# Notes:
-#   - Run this once per machine (per boot) on the physical interface you use.
-#   - Expects eBPF objects already built in ./ebpf:
-#       ebpf/atu_rx.o  (sections: tc/rx_ingress_cache_atu, tc/rx_egress_add_ack_opt)
-#       ebpf/atu_tx.o  (section:  tc/tx_ingress_parse_ack_opt)
-#   - Maps are pinned under /sys/fs/bpf/tc to make RX & TX share them.
-# =============================================================
+ROLE=""
+IFACE=""
+MOD_PATH="linux/ccll.ko"
+BPF_OBJ="ebpf/atu_rx.o"
+NF_ATU_ENABLED=1
 
-IFACE="${1:-}"  # required physical NIC, e.g., eno1/eth0
-if [[ -z "${IFACE}" ]]; then
-  echo "Usage: sudo $0 <IFACE>  (e.g., eth0)" >&2
+usage() {
+  cat <<USAGE
+Usage: sudo $0 --role <sender|receiver> [--iface IFACE] [--module PATH] [--bpf PATH] [--nf 0|1]
+
+Options:
+  --role    sender | receiver   (required)
+  --iface   Network interface to configure. If omitted, auto-detect default egress NIC.
+  --module  Path to ccll.ko (sender role). Default: ${MOD_PATH}
+  --bpf     Path to atu_rx.o (receiver role). Default: ${BPF_OBJ}
+  --nf      nf_atu_enabled for ccll.ko (0 or 1). Default: ${NF_ATU_ENABLED}
+  -h|--help Show this help and exit.
+
+Examples:
+  sudo $0 --role sender --iface eth0 --module linux/ccll.ko
+  sudo $0 --role receiver --iface enp3s0 --bpf ebpf/atu_rx.o
+USAGE
+}
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --role) ROLE=${2:-}; shift 2;;
+    --iface) IFACE=${2:-}; shift 2;;
+    --module) MOD_PATH=${2:-}; shift 2;;
+    --bpf) BPF_OBJ=${2:-}; shift 2;;
+    --nf) NF_ATU_ENABLED=${2:-1}; shift 2;;
+    -h|--help) usage; exit 0;;
+    *) echo "[host-setup] Unknown option: $1" >&2; usage; exit 1;;
+  esac
+done
+
+if [[ -z "$ROLE" ]]; then
+  echo "[host-setup] --role is required (sender|receiver)" >&2
+  usage
   exit 1
 fi
 
-if [[ $EUID -ne 0 ]]; then
-  echo "Please run as root" >&2
-  exit 1
+# Auto-detect default egress NIC if --iface not provided
+if [[ -z "$IFACE" ]]; then
+  IFACE=$(ip -o route get 1.1.1.1 2>/dev/null | awk '/dev/ {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}') || true
+  if [[ -z "${IFACE:-}" ]]; then
+    echo "[host-setup] ERROR: Could not auto-detect default interface. Please pass --iface." >&2
+    exit 1
+  fi
+  echo "[host-setup] Auto-detected interface: ${IFACE}"
 fi
 
-# --- Sanity: NIC exists ---
-if ! ip link show dev "$IFACE" >/dev/null 2>&1; then
-  echo "Interface '$IFACE' not found" >&2
-  exit 1
-fi
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || { echo "[host-setup] ERROR: Missing command '$1'" >&2; exit 1; }
+}
 
-# --- DebugFS for bpf_printk() ---
-mkdir -p /sys/kernel/debug
-mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || true
-echo 1 > /sys/kernel/debug/tracing/tracing_on || true
+turn_offloads() {
+  local dev="$1"
+  echo "[host-setup] Disabling offloads on ${dev} (testing mode)"
+  ethtool -K "$dev" rx off tx off tso off gso off gro off lro off || true
+}
 
-# --- bpffs (global) ---
-mkdir -p /sys/fs/bpf
-mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf
-mkdir -p /sys/fs/bpf/tc /sys/fs/bpf/atu_rx /sys/fs/bpf/atu_tx
+mount_bpffs() {
+  if ! mountpoint -q /sys/fs/bpf; then
+    mkdir -p /sys/fs/bpf
+    mount -t bpf bpf /sys/fs/bpf
+  fi
+}
 
-# --- Disable troublesome offloads on the real NIC ---
-echo "[net] disable offloads on $IFACE"
-ethtool -K "$IFACE" tso off gso off gro off lro off rxvlan off txvlan off 2>/dev/null || true
+setup_sender() {
+  require_cmd ethtool
+  require_cmd sysctl
+  # Optional but helpful for diagnostics
+  command -v modprobe >/dev/null 2>&1 || true
 
-# --- Clean + add clsact qdisc ---
-echo "[tc] reset clsact on $IFACE"
-tc qdisc del dev "$IFACE" clsact 2>/dev/null || true
-tc qdisc add dev "$IFACE" clsact
+  # Reload module cleanly
+  if lsmod | awk '{print $1}' | grep -qx ccll; then
+    rmmod ccll || true
+  fi
+  if [[ ! -f "$MOD_PATH" ]]; then
+    echo "[host-setup] ERROR: module not found: $MOD_PATH" >&2
+    exit 1
+  fi
+  echo "[host-setup] Inserting module: $MOD_PATH (nf_atu_enabled=${NF_ATU_ENABLED})"
+  insmod "$MOD_PATH" nf_atu_enabled=${NF_ATU_ENABLED}
 
-# =============================================================
-# Load RX object and pin its programs & map globally
-# =============================================================
-if [[ ! -f ebpf/atu_rx.o ]]; then
-  echo "Missing ebpf/atu_rx.o. Build it first (e.g., make ebpf-rx)." >&2
-  exit 1
-fi
-
-echo "[bpf] load RX object -> /sys/fs/bpf/atu_rx"
-# This creates pinned program files under /sys/fs/bpf/atu_rx/*
-# Names will be classifier_<section_name_without_prefix>
-# (libbpf auto-detects tc prog type from "tc/" section)
-rm -f /sys/fs/bpf/atu_rx/* 2>/dev/null || true
-bpftool prog loadall ebpf/atu_rx.o /sys/fs/bpf/atu_rx
-
-# Pin rx_flow_atu map globally so both RX ingress & egress share it
-echo "[bpf] pin rx_flow_atu -> /sys/fs/bpf/tc/rx_flow_atu"
-MID_RX=$(bpftool map show | awk '/ name rx_flow_atu /{print $1; exit}' | tr -d :) || true
-if [[ -n "${MID_RX:-}" ]]; then
-  bpftool map pin id "$MID_RX" /sys/fs/bpf/tc/rx_flow_atu 2>/dev/null || true
-else
-  echo "WARNING: rx_flow_atu map id not found. Ensure atu_rx.o contains it." >&2
-fi
-
-# Attach RX ingress/egress using the pinned programs
-# Program pin names come from bpftool; they typically look like:
-#   /sys/fs/bpf/atu_rx/classifier_rx_ingress_cache_atu
-#   /sys/fs/bpf/atu_rx/classifier_rx_egress_add_ack_opt
-RX_ING_PIN=/sys/fs/bpf/atu_rx/classifier_rx_ingress_cache_atu
-RX_EGR_PIN=/sys/fs/bpf/atu_rx/classifier_rx_egress_add_ack_opt
-
-if [[ ! -e "$RX_ING_PIN" || ! -e "$RX_EGR_PIN" ]]; then
-  echo "ERROR: pinned RX programs not found under /sys/fs/bpf/atu_rx (got: $(ls -1 /sys/fs/bpf/atu_rx))" >&2
-  exit 1
-fi
-
-echo "[tc] attach RX ingress/egress on $IFACE"
-# Remove any old handles on pref 10 to avoid duplicates
-(tc filter del dev "$IFACE" ingress pref 10 2>/dev/null || true)
-(tc filter del dev "$IFACE" egress  pref 10 2>/dev/null || true)
-
-tc filter add dev "$IFACE" ingress pref 10 bpf da pinned "$RX_ING_PIN"
-tc filter add dev "$IFACE" egress  pref 10 bpf da pinned "$RX_EGR_PIN"
-
-# =============================================================
-# Load & attach TX ACK-option parser on the same NIC (ingress)
-# =============================================================
-if [[ ! -f ebpf/atu_tx.o ]]; then
-  echo "Missing ebpf/atu_tx.o. Build it first (e.g., make ebpf-tx)." >&2
-  exit 1
-fi
-
-echo "[tc] attach TX ACK parser on $IFACE ingress (pref 20)"
-# Remove old pref 20 if exists
-(tc filter del dev "$IFACE" ingress pref 20 2>/dev/null || true)
-# Attach directly from section name (do not pin this one; it's fine attached by tc)
-tc filter add dev "$IFACE" ingress pref 20 bpf da obj ebpf/atu_tx.o sec tc/tx_ingress_parse_ack_opt
-
-# Pin ack_atu_by_flow (map from TX program) so userspace can read it too
-PID_TX=$(tc -s filter show dev "$IFACE" ingress | awk '/\[tc\/tx_ingress_parse_ack_opt\]/{for(i=1;i<=NF;i++){if($i=="id"){print $(i+1); exit}}}') || true
-if [[ -n "${PID_TX:-}" ]]; then
-  MID_LIST=$(bpftool prog show id "$PID_TX" | sed -n 's/.*map_ids \([0-9,]\+\).*/\1/p') || true
-  if [[ -n "${MID_LIST:-}" ]]; then
-    MID_TX=$(echo "$MID_LIST" | tr ',' '\n' | while read -r id; do bpftool map show id "$id" | grep -q " name ack_atu_by_flow " && echo "$id" && break; done)
-    if [[ -n "${MID_TX:-}" ]]; then
-      echo "[bpf] pin ack_atu_by_flow -> /sys/fs/bpf/tc/ack_atu_by_flow"
-      bpftool map pin id "$MID_TX" /sys/fs/bpf/tc/ack_atu_by_flow 2>/dev/null || true
-    else
-      echo "WARNING: ack_atu_by_flow map id not found in TX prog $PID_TX" >&2
+  # Set congestion control to ccll
+  echo "[host-setup] Switching tcp_congestion_control to 'ccll'"
+  if sysctl -n net.ipv4.tcp_available_congestion_control | tr ' ' '\n' | grep -qx ccll; then
+    sysctl -w net.ipv4.tcp_congestion_control=ccll >/dev/null
+  else
+    if ! sysctl -w net.ipv4.tcp_congestion_control=ccll >/dev/null; then
+      echo "[host-setup] WARNING: 'ccll' not listed in tcp_available_congestion_control" >&2
+      dmesg | grep -i ccll | tail -n 50 || true
     fi
   fi
-else
-  echo "WARNING: could not resolve TX prog id from tc output; map may not be pinned" >&2
-fi
 
-# --- Final status ---
-echo
-echo "==== tc filters on $IFACE ===="
-tc -s filter show dev "$IFACE" ingress || true
- tc -s filter show dev "$IFACE" egress  || true
+  turn_offloads "$IFACE"
+  echo "[host-setup] Sender ready on ${IFACE}. Active CC: $(sysctl -n net.ipv4.tcp_congestion_control)"
+}
 
-echo
-echo "==== Pinned maps under /sys/fs/bpf/tc ===="
-ls -l /sys/fs/bpf/tc || true
+setup_receiver() {
+  require_cmd ethtool
+  require_cmd tc
+  require_cmd bpftool
 
-cat <<EOF
+  if [[ ! -f "$BPF_OBJ" ]]; then
+    echo "[host-setup] ERROR: BPF object not found: $BPF_OBJ" >&2
+    exit 1
+  fi
 
-[Done]
-- RX and TX eBPF attached on interface: $IFACE
-- rx_flow_atu pinned at:   /sys/fs/bpf/tc/rx_flow_atu
-- (if found) ack_atu_by_flow pinned at: /sys/fs/bpf/tc/ack_atu_by_flow
+  mount_bpffs
+  mkdir -p /sys/fs/bpf/atu_rx /sys/fs/bpf/tc
 
-Quick checks (another terminal):
-  sudo tcpdump -i $IFACE -vvv -s0 -n 'tcp[13] & 16 != 0' -c 5
-  sudo bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu || true
-  sudo bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow || true
+  echo "[host-setup] Loading BPF: $BPF_OBJ -> /sys/fs/bpf/atu_rx"
+  bpftool prog loadall "$BPF_OBJ" /sys/fs/bpf/atu_rx
 
-To view bpf_printk():
-  sudo cat /sys/kernel/debug/tracing/trace_pipe
-EOF
+  # Verify program pins before tc attach
+  local INGRESS_PROG=/sys/fs/bpf/atu_rx/classifier_rx_ingress_cache_atu
+  local EGRESS_PROG=/sys/fs/bpf/atu_rx/classifier_rx_egress_add_ack_opt
+  [[ -e "$INGRESS_PROG" ]] || { echo "[host-setup] ERROR: missing $INGRESS_PROG" >&2; exit 1; }
+  [[ -e "$EGRESS_PROG" ]] || { echo "[host-setup] ERROR: missing $EGRESS_PROG" >&2; exit 1; }
+
+  turn_offloads "$IFACE"
+
+  echo "[host-setup] Attaching tc filters on ${IFACE}"
+  tc qdisc del dev "$IFACE" clsact 2>/dev/null || true
+  tc qdisc add dev "$IFACE" clsact
+  tc filter add dev "$IFACE" ingress pref 10 bpf da pinned "$INGRESS_PROG"
+  tc filter add dev "$IFACE" egress  pref 10 bpf da pinned "$EGRESS_PROG"
+  # Ensure checksums are correct after egress modifications
+  tc filter add dev "$IFACE" egress  pref 20 protocol ip flower ip_proto tcp action csum ip tcp
+  tc -s filter show dev "$IFACE" ingress || true
+  tc -s filter show dev "$IFACE" egress  || true
+
+  echo "[host-setup] Receiver ready on ${IFACE}"
+}
+
+case "$ROLE" in
+  sender)   setup_sender ;;
+  receiver) setup_receiver ;;
+  *) echo "[host-setup] ERROR: Unknown role '$ROLE' (use sender|receiver)" >&2; exit 1;;
+ esac

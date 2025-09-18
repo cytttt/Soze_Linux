@@ -11,6 +11,7 @@ PKG_NAME := ccll
 dkms_package_version := $(shell awk -F= '$$1 == "PACKAGE_VERSION" { gsub("\"", "", $$2); print $$2 }' dkms.conf)
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
+NF_ATU_ENABLED ?= 1
 
 RX_IF ?= eth0
 TX_IF ?= eth1
@@ -39,9 +40,6 @@ EBPF_SRC    := ebpf/atu_tcp_option_skeleton.c
 EBPF_RX_OBJ := ebpf/atu_rx.o
 EBPF_TX_OBJ := ebpf/atu_tx.o
 
-DAEMON_SRC := daemon/ccll_atu_daemon.c
-DAEMON_BIN := ccll_atu_daemon
-
 CLANG ?= clang
 BPFTOOL ?= bpftool
 
@@ -61,22 +59,22 @@ BPF_CFLAGS += -DATU_TEST_MODE=$(ATU_TEST_MODE)
 
 # Sender-side sk_storage toggle (0=omit, 1=include). Some kernels reject SK_STORAGE at tc.
 SEND_USE_SK_STORAGE ?= 0
+BUILD_TX_EBPF ?= 0
 
-.PHONY: all kmod insmod rmmod ebpf ebpf-rx ebpf-tx daemon attach attach-recv attach-send pin pin-recv pin-send detach detach-recv detach-send status status-recv status-send clean \
-        dkms-add dkms-build dkms-install dkms-remove dkms-reinstall install uninstall
+.PHONY: all kmod insmod rmmod ebpf ebpf-rx ebpf-tx clean dkms-add dkms-build dkms-install dkms-remove dkms-reinstall install uninstall
 
-all: kmod ebpf daemon
+all: kmod ebpf
 
 kmod:
 	$(MAKE) -C $(KDIR) M=$$PWD modules
 
 insmod: kmod
-	sudo insmod ./ccll.ko || true
+	sudo insmod ./ccll.ko nf_atu_enabled=$(NF_ATU_ENABLED) || true
 
 rmmod:
 	sudo rmmod ccll || true
 
-ebpf: ebpf-rx ebpf-tx
+ebpf: ebpf-rx $(if $(filter 1,$(BUILD_TX_EBPF)),ebpf-tx,)
 
 ebpf-rx:
 	$(CLANG) $(BPF_CFLAGS) -DBUILD_SEND=0 -DUSE_SK_STORAGE=0 -c $(EBPF_SRC) -o $(EBPF_RX_OBJ)
@@ -84,11 +82,8 @@ ebpf-rx:
 ebpf-tx:
 	$(CLANG) $(BPF_CFLAGS) -DBUILD_SEND=1 -DUSE_SK_STORAGE=$(SEND_USE_SK_STORAGE) -c $(EBPF_SRC) -o $(EBPF_TX_OBJ)
 
-daemon:
-	$(CC) -O2 -g -o $(DAEMON_BIN) $(DAEMON_SRC) -lbpf
-
 clean:
 	$(MAKE) -C $(KDIR) M=$$PWD clean
-	rm -f $(EBPF_RX_OBJ) $(EBPF_TX_OBJ) $(DAEMON_BIN)
+	rm -f $(EBPF_RX_OBJ) $(EBPF_TX_OBJ)
 
 endif
