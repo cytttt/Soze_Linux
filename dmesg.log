@@ -1,0 +1,404 @@
+[   66.254850] ccll: C2L2 Congestion Control registered
+[   66.254850] ccll: ATU integration enabled (timeout: 500 ms)
+[   66.254851] ccll: ATU scale: 10000, bounds: 10% - 100%
+[   66.254856] ccll: Netfilter ACK hook registered
+[   66.254863] ccll: genetlink weight control registered
+[  171.490290] ccll_genl: set_weight 10.0.0.2:5000 -> 10.0.0.1:40000 w=120000
+[  309.278683] ccll: pkts_acked pre rtt_us=128139 inflight=1 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=0
+[  309.278727] ccll: rtt update rtt_us=128139 min_rtt=128139
+[  309.278738] ccll: bootstrap rate_kbps=936 from cwnd=10 rtt=128139
+[  309.278749] ccll: lookup atu from header enter
+[  309.278759] ccll: lookup atu from header enter
+[  309.278769] ccll: ATU key build failed (AF not IPv4)
+[  309.278779] ccll: ATU missing and no cache — neutral update this ACK
+[  309.278789] ccll: neutral update (no ATU)
+[  309.278799] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  309.278810] ccll: rate apply before=936 after=936
+[  309.278820] ccll: pkts_acked post rtt_us=128139 min_rtt=128139 atu=0 rate_kbps=936 cwnd_target=9 inflight=0
+[  309.282135] ccll: cwnd_event ev=0 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  309.410142] ccll: pkts_acked pre rtt_us=127999 inflight=268 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  309.410157] ccll: rtt update rtt_us=127999 min_rtt=127999
+[  309.410159] ccll: lookup atu from header enter
+[  309.410160] ccll: lookup atu from header enter
+[  309.410161] ccll: ATU key build failed (AF not IPv4)
+[  309.410162] ccll: ATU missing and no cache — neutral update this ACK
+[  309.410163] ccll: neutral update (no ATU)
+[  309.410165] ccll: rate step cwnd=10 lg(update*FPS)=518124 per_pkt_update=1
+[  309.410167] ccll: rate apply before=1000 after=1000
+[  309.410168] ccll: pkts_acked post rtt_us=127999 min_rtt=127999 atu=0 rate_kbps=1000 cwnd_target=10 inflight=0
+[  309.410173] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=10
+[  309.412513] ccll: cwnd_event ev=0 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  309.525285] ccll: pkts_acked pre rtt_us=112759 inflight=80 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  309.525305] ccll: rtt update rtt_us=112759 min_rtt=112759
+[  309.525307] ccll: lookup atu from header enter
+[  309.525308] ccll: lookup atu from header enter
+[  309.525309] ccll: ATU key build failed (AF not IPv4)
+[  309.525310] ccll: ATU missing and no cache — neutral update this ACK
+[  309.525311] ccll: neutral update (no ATU)
+[  309.525313] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  309.525315] ccll: rate apply before=1000 after=1000
+[  309.525317] ccll: pkts_acked post rtt_us=112759 min_rtt=112759 atu=0 rate_kbps=1000 cwnd_target=9 inflight=3
+[  309.525326] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=3 target=9
+[  309.525357] ccll: pkts_acked pre rtt_us=112271 inflight=3129 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  309.525360] ccll: rtt update rtt_us=112271 min_rtt=112271
+[  309.525361] ccll: lookup atu from header enter
+[  309.525363] ccll: lookup atu from header enter
+[  309.525364] ccll: ATU key build failed (AF not IPv4)
+[  309.525365] ccll: ATU missing and no cache — neutral update this ACK
+[  309.525365] ccll: neutral update (no ATU)
+[  309.525366] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  309.525367] ccll: rate apply before=1000 after=1000
+[  309.525368] ccll: pkts_acked post rtt_us=112271 min_rtt=112271 atu=0 rate_kbps=1000 cwnd_target=9 inflight=0
+[  309.525370] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=9
+[  309.596358] ccll: cwnd_event ev=0 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  309.708536] ccll: pkts_acked pre rtt_us=111778 inflight=4447 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  309.708631] ccll: rtt update rtt_us=111778 min_rtt=111778
+[  309.708647] ccll: lookup atu from header enter
+[  309.708662] ccll: lookup atu from header enter
+[  309.708675] ccll: ATU key build failed (AF not IPv4)
+[  309.708689] ccll: ATU missing and no cache — neutral update this ACK
+[  309.708703] ccll: neutral update (no ATU)
+[  309.708717] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  309.708732] ccll: rate apply before=1000 after=1000
+[  309.708746] ccll: pkts_acked post rtt_us=111778 min_rtt=111778 atu=0 rate_kbps=1000 cwnd_target=9 inflight=0
+[  309.708768] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=9
+[  310.138211] ccll: pkts_acked pre rtt_us=115177 inflight=1 s=0.0.0.0:48260 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=0
+[  310.138237] ccll: rtt update rtt_us=115177 min_rtt=115177
+[  310.138239] ccll: bootstrap rate_kbps=1041 from cwnd=10 rtt=115177
+[  310.138242] ccll: lookup atu from header enter
+[  310.138243] ccll: lookup atu from header enter
+[  310.138244] ccll: ATU key build failed (AF not IPv4)
+[  310.138246] ccll: ATU missing and no cache — neutral update this ACK
+[  310.138247] ccll: neutral update (no ATU)
+[  310.138250] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  310.138253] ccll: rate apply before=1041 after=1041
+[  310.138254] ccll: pkts_acked post rtt_us=115177 min_rtt=115177 atu=0 rate_kbps=1041 cwnd_target=9 inflight=0
+[  310.139290] ccll: cwnd_event ev=0 s=0.0.0.0:48260 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  310.253700] ccll: pkts_acked pre rtt_us=114391 inflight=268 s=0.0.0.0:48260 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  310.253783] ccll: rtt update rtt_us=114391 min_rtt=114391
+[  310.253799] ccll: lookup atu from header enter
+[  310.253813] ccll: lookup atu from header enter
+[  310.253826] ccll: ATU key build failed (AF not IPv4)
+[  310.253839] ccll: ATU missing and no cache — neutral update this ACK
+[  310.253853] ccll: neutral update (no ATU)
+[  310.253868] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  310.253883] ccll: rate apply before=1000 after=1000
+[  310.253897] ccll: pkts_acked post rtt_us=114391 min_rtt=114391 atu=0 rate_kbps=1000 cwnd_target=9 inflight=0
+[  310.253922] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=9
+[  310.260304] ccll: cwnd_event ev=0 s=0.0.0.0:48260 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  310.371562] ccll: pkts_acked pre rtt_us=111230 inflight=80 s=0.0.0.0:48260 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  310.371674] ccll: rtt update rtt_us=111230 min_rtt=111230
+[  310.371686] ccll: lookup atu from header enter
+[  310.371696] ccll: lookup atu from header enter
+[  310.371706] ccll: ATU key build failed (AF not IPv4)
+[  310.371717] ccll: ATU missing and no cache — neutral update this ACK
+[  310.371727] ccll: neutral update (no ATU)
+[  310.371738] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  310.371750] ccll: rate apply before=1000 after=1000
+[  310.371762] ccll: pkts_acked post rtt_us=111230 min_rtt=111230 atu=0 rate_kbps=1000 cwnd_target=9 inflight=1
+[  310.371785] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=1 target=9
+[  310.416970] ccll: pkts_acked pre rtt_us=155826 inflight=1135 s=0.0.0.0:48260 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  310.416989] ccll: rtt update rtt_us=155826 min_rtt=111230
+[  310.416991] ccll: lookup atu from header enter
+[  310.416992] ccll: lookup atu from header enter
+[  310.416992] ccll: ATU key build failed (AF not IPv4)
+[  310.416993] ccll: ATU missing and no cache — neutral update this ACK
+[  310.416994] ccll: neutral update (no ATU)
+[  310.416995] ccll: rate step cwnd=12 lg(update*FPS)=518124 per_pkt_update=1
+[  310.416997] ccll: rate apply before=1000 after=1000
+[  310.416998] ccll: pkts_acked post rtt_us=155826 min_rtt=111230 atu=0 rate_kbps=1000 cwnd_target=12 inflight=0
+[  310.417002] ccll: cong_avoid (not-limited/waiting-ok) cwnd=12 inflight=0 target=12
+[  310.915130] ccll: pkts_acked pre rtt_us=50816 inflight=1 s=192.168.1.77:33416 -> d=91.189.91.99:443 cwnd=10 rate_kbps(before)=0
+[  310.915219] ccll: rtt update rtt_us=50816 min_rtt=50816
+[  310.915227] ccll: bootstrap rate_kbps=2361 from cwnd=10 rtt=50816
+[  310.915235] ccll: lookup atu from header enter
+[  310.915244] ccll: lookup atu from header enter
+[  310.915253] ccll: ATU not available yet (enabled=1)
+[  310.915264] ccll: ATU missing and no cache — neutral update this ACK
+[  310.915270] ccll: neutral update (no ATU)
+[  310.915278] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  310.915285] ccll: rate apply before=2361 after=2361
+[  310.915294] ccll: pkts_acked post rtt_us=50816 min_rtt=50816 atu=0 rate_kbps=2361 cwnd_target=9 inflight=0
+[  310.917193] ccll: cwnd_event ev=0 s=192.168.1.77:33416 -> d=91.189.91.99:443 cwnd=10 ssthresh=0
+[  310.966946] ccll: ATU not available yet (enabled=1)
+[  310.966985] ccll: cong_avoid (not-limited/waiting-ok) cwnd=12 inflight=0 target=12
+[  310.968756] ccll: cwnd_event ev=0 s=192.168.1.77:33416 -> d=91.189.91.99:443 cwnd=12 ssthresh=0
+[  311.016801] ccll: ATU not available yet (enabled=1)
+[  311.016848] ccll: cong_avoid (not-limited/waiting-ok) cwnd=12 inflight=1 target=12
+[  311.019058] ccll: ATU not available yet (enabled=1)
+[  311.019123] ccll: cong_avoid (not-limited/waiting-ok) cwnd=12 inflight=0 target=12
+[  314.874139] ccll: cwnd_event ev=1 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  314.874143] ccll: cwnd_event restart (set floor, target=9, cwnd=10)
+[  314.874146] ccll: cwnd_event ev=0 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 ssthresh=7
+[  314.874532] ccllcc_acked: 3 callbacks suppressed
+[  314.874533] ccll: pkts_acked pre rtt_us=-1 inflight=0 s=0.0.0.0:36678 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  314.952504] ccll: pkts_acked pre rtt_us=89 inflight=1 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=0
+[  314.952507] ccllcc_acked: 3 callbacks suppressed
+[  314.952508] ccll: rtt update rtt_us=89 min_rtt=89
+[  314.952508] ccll: bootstrap rate_kbps=1348314 from cwnd=10 rtt=89
+[  314.952509] ccllcc_acked: 3 callbacks suppressed
+[  314.952509] ccll: lookup atu from header enter
+[  314.952510] ccll: lookup atu from header enter
+[  314.952510] ccll: ATU not available yet (enabled=1)
+[  314.952511] ccllcc_acked: 3 callbacks suppressed
+[  314.952511] ccll: ATU missing and no cache — neutral update this ACK
+[  314.952511] ccllcc_acked: 3 callbacks suppressed
+[  314.952511] ccll: neutral update (no ATU)
+[  314.952512] ccllcc_acked: 3 callbacks suppressed
+[  314.952512] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  314.952512] ccllcc_acked: 3 callbacks suppressed
+[  314.952513] ccll: rate apply before=1348314 after=1348314
+[  314.952513] ccllcc_acked: 3 callbacks suppressed
+[  314.952513] ccll: pkts_acked post rtt_us=89 min_rtt=89 atu=0 rate_kbps=1348314 cwnd_target=9 inflight=0
+[  314.952634] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.952686] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952688] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952689] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952690] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952690] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952727] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952728] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952729] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952730] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952730] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952733] ccll: pkts_acked pre rtt_us=99 inflight=14480 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=1000
+[  314.952734] ccll: rtt update rtt_us=99 min_rtt=99
+[  314.952734] ccll: lookup atu from header enter
+[  314.952734] ccll: lookup atu from header enter
+[  314.952735] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.952735] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.952735] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.952736] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.952737] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=508444 Kp=20/100 update=9
+[  314.952738] ccll: rate step cwnd=1 lg(update*FPS)=219678 per_pkt_update=8
+[  314.952738] ccll: rate apply before=1000 after=8000
+[  314.952738] ccll: pkts_acked post rtt_us=99 min_rtt=99 atu=9000 rate_kbps=8000 cwnd_target=2 inflight=0
+[  314.952739] ccll: cong_avoid (limited) cwnd=10 inflight=0 target=2
+[  314.952740] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.952787] ccll: pkts_acked pre rtt_us=47 inflight=1904 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=8000
+[  314.952788] ccll: rtt update rtt_us=47 min_rtt=47
+[  314.952788] ccll: lookup atu from header enter
+[  314.952789] ccll: lookup atu from header enter
+[  314.952789] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.952789] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.952790] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.952790] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.952791] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=516974 Kp=20/100 update=8
+[  314.952791] ccll: rate step cwnd=1 lg(update*FPS)=207908 per_pkt_update=7
+[  314.952792] ccll: rate apply before=8000 after=56000
+[  314.952792] ccll: pkts_acked post rtt_us=47 min_rtt=47 atu=9000 rate_kbps=56000 cwnd_target=2 inflight=0
+[  314.952793] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=2
+[  314.952798] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.952838] ccll: pkts_acked pre rtt_us=40 inflight=7240 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=56000
+[  314.952839] ccll: rtt update rtt_us=40 min_rtt=40
+[  314.952839] ccll: lookup atu from header enter
+[  314.952839] ccll: lookup atu from header enter
+[  314.952839] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.952839] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.952840] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.952840] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.952841] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518024 Kp=20/100 update=8
+[  314.952841] ccll: rate step cwnd=1 lg(update*FPS)=207908 per_pkt_update=7
+[  314.952842] ccll: rate apply before=56000 after=392000
+[  314.952842] ccll: pkts_acked post rtt_us=40 min_rtt=40 atu=9000 rate_kbps=392000 cwnd_target=2 inflight=6
+[  314.952843] ccll: cong_avoid (limited) cwnd=10 inflight=6 target=2
+[  314.952994] ccll: pkts_acked pre rtt_us=109 inflight=13488 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=392000
+[  314.952995] ccll: rtt update rtt_us=109 min_rtt=40
+[  314.952995] ccll: lookup atu from header enter
+[  314.952996] ccll: lookup atu from header enter
+[  314.952996] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.952996] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.952996] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.952997] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.952997] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518174 Kp=20/100 update=8
+[  314.952998] ccll: rate step cwnd=3 lg(update*FPS)=207908 per_pkt_update=1
+[  314.952998] ccll: rate apply before=392000 after=392000
+[  314.952999] ccll: pkts_acked post rtt_us=109 min_rtt=40 atu=9000 rate_kbps=392000 cwnd_target=3 inflight=0
+[  314.952999] ccll: cong_avoid (limited) cwnd=10 inflight=0 target=3
+[  314.953000] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.953170] ccll: pkts_acked pre rtt_us=169 inflight=14480 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=392000
+[  314.953171] ccll: rtt update rtt_us=169 min_rtt=40
+[  314.953171] ccll: lookup atu from header enter
+[  314.953171] ccll: lookup atu from header enter
+[  314.953172] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.953172] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.953172] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.953173] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.953173] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518174 Kp=20/100 update=8
+[  314.953174] ccll: rate step cwnd=5 lg(update*FPS)=207908 per_pkt_update=1
+[  314.953174] ccll: rate apply before=392000 after=392000
+[  314.953174] ccll: pkts_acked post rtt_us=169 min_rtt=40 atu=9000 rate_kbps=392000 cwnd_target=5 inflight=0
+[  314.953175] ccll: cong_avoid (limited) cwnd=10 inflight=0 target=5
+[  314.953176] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.953260] ccll: pkts_acked pre rtt_us=85 inflight=14480 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=392000
+[  314.953261] ccll: rtt update rtt_us=85 min_rtt=40
+[  314.953261] ccll: lookup atu from header enter
+[  314.953261] ccll: lookup atu from header enter
+[  314.953262] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.953262] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.953262] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.953263] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.953263] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518174 Kp=20/100 update=8
+[  314.953264] ccll: rate step cwnd=2 lg(update*FPS)=207908 per_pkt_update=2
+[  314.953264] ccll: rate apply before=392000 after=784000
+[  314.953264] ccll: pkts_acked post rtt_us=85 min_rtt=40 atu=9000 rate_kbps=784000 cwnd_target=5 inflight=0
+[  314.953265] ccll: cong_avoid (limited) cwnd=10 inflight=0 target=5
+[  314.953265] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.953304] ccll: pkts_acked pre rtt_us=39 inflight=14480 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=784000
+[  314.953305] ccll: rtt update rtt_us=39 min_rtt=39
+[  314.953305] ccll: lookup atu from header enter
+[  314.953305] ccll: lookup atu from header enter
+[  314.953306] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.953306] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.953306] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.953307] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.953307] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518174 Kp=20/100 update=8
+[  314.953308] ccll: rate step cwnd=2 lg(update*FPS)=207908 per_pkt_update=2
+[  314.953308] ccll: rate apply before=784000 after=1568000
+[  314.953313] ccll: pkts_acked post rtt_us=39 min_rtt=39 atu=9000 rate_kbps=1568000 cwnd_target=5 inflight=0
+[  314.953313] ccll: cong_avoid (limited) cwnd=10 inflight=0 target=5
+[  314.953314] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.953339] ccll: pkts_acked pre rtt_us=25 inflight=14480 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 rate_kbps(before)=1568000
+[  314.953340] ccll: rtt update rtt_us=25 min_rtt=25
+[  314.953340] ccll: lookup atu from header enter
+[  314.953340] ccll: lookup atu from header enter
+[  314.953340] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.953341] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.953341] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.953342] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.953342] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518174 Kp=20/100 update=8
+[  314.953342] ccll: rate step cwnd=3 lg(update*FPS)=207908 per_pkt_update=1
+[  314.953343] ccll: rate apply before=1568000 after=1568000
+[  314.953343] ccll: pkts_acked post rtt_us=25 min_rtt=25 atu=9000 rate_kbps=1568000 cwnd_target=3 inflight=0
+[  314.953344] ccll: cong_avoid (limited) cwnd=10 inflight=0 target=3
+[  314.953344] ccll: cwnd_event ev=0 s=10.0.0.2:53254 -> d=10.0.0.1:5000 cwnd=10 ssthresh=0
+[  314.953358] ccll: rtt update rtt_us=14 min_rtt=14
+[  314.953358] ccll: lookup atu from header enter
+[  314.953358] ccll: lookup atu from header enter
+[  314.953358] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.953359] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.953359] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.953360] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.953360] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518174 Kp=20/100 update=8
+[  314.953360] ccll: rate step cwnd=1 lg(update*FPS)=207908 per_pkt_update=7
+[  314.953361] ccll: rate apply before=1568000 after=10976000
+[  314.953361] ccll: pkts_acked post rtt_us=14 min_rtt=14 atu=9000 rate_kbps=10976000 cwnd_target=12 inflight=0
+[  314.953362] ccll: cong_avoid (not-limited/waiting-ok) cwnd=12 inflight=0 target=12
+[  314.953457] ccll: ATU ok scaled=9000 (n=9000 d=10000)
+[  314.953458] ccll: ATU fresh -> 9000 (cache now 9000)
+[  314.953458] ccll: T(ATU) region B: atu=9000 in [8500,9500] frac=50000/1e5 lg_T=1611810
+[  314.953459] ccll: apply weight w=100000 lg_w=0 => lg_T'=1611810
+[  314.953459] ccll: update from U=(T/r)^Kp: lgT=1611810 lgR=518174 Kp=20/100 update=8
+[  314.953460] ccll: cong_avoid (limited) cwnd=75 inflight=0 target=75
+[  314.953550] ccll: cong_avoid (not-limited/waiting-ok) cwnd=77 inflight=0 target=77
+[  314.953657] ccll: cong_avoid (not-limited/waiting-ok) cwnd=93 inflight=0 target=93
+[  314.953727] ccll: cong_avoid (not-limited/waiting-ok) cwnd=93 inflight=0 target=50
+[  314.953836] ccll: cong_avoid (not-limited/waiting-ok) cwnd=93 inflight=0 target=75
+[  314.953936] ccll: cong_avoid (not-limited/waiting-ok) cwnd=93 inflight=0 target=75
+[  314.954008] ccll: cong_avoid (not-limited/waiting-ok) cwnd=93 inflight=0 target=62
+[  314.954129] ccll: cong_avoid (not-limited/waiting-ok) cwnd=93 inflight=9 target=75
+[  314.954130] ccll: cong_avoid (not-limited/waiting-ok) cwnd=93 inflight=0 target=75
+[  315.446147] ccll: cwnd_event restart (set floor, target=12, cwnd=12)
+[  317.783147] ccll: bootstrap rate_kbps=1062 from cwnd=10 rtt=112894
+[  317.783233] ccll: ATU key build failed (AF not IPv4)
+[  317.783246] ccll: ATU missing and no cache — neutral update this ACK
+[  317.783253] ccll: neutral update (no ATU)
+[  317.896270] ccll: ATU key build failed (AF not IPv4)
+[  317.896342] ccll: ATU missing and no cache — neutral update this ACK
+[  317.896349] ccll: neutral update (no ATU)
+[  318.012536] ccll: ATU key build failed (AF not IPv4)
+[  318.012660] ccll: ATU missing and no cache — neutral update this ACK
+[  318.012679] ccll: neutral update (no ATU)
+[  318.911891] ccll: bootstrap rate_kbps=1057 from cwnd=10 rtt=113428
+[  318.911909] ccll: ATU key build failed (AF not IPv4)
+[  318.911914] ccll: ATU missing and no cache — neutral update this ACK
+[  318.911919] ccll: neutral update (no ATU)
+[  319.028083] ccll: ATU key build failed (AF not IPv4)
+[  319.028139] ccll: ATU missing and no cache — neutral update this ACK
+[  319.028154] ccll: neutral update (no ATU)
+[  319.147046] ccll: ATU key build failed (AF not IPv4)
+[  319.147054] ccll: ATU missing and no cache — neutral update this ACK
+[  319.147055] ccll: neutral update (no ATU)
+[  319.269408] ccll: ATU key build failed (AF not IPv4)
+[  319.269473] ccll: ATU missing and no cache — neutral update this ACK
+[  319.269480] ccll: neutral update (no ATU)
+[  319.397548] ccll: ATU key build failed (AF not IPv4)
+[  319.397626] ccll: ATU missing and no cache — neutral update this ACK
+[  319.397641] ccll: neutral update (no ATU)
+[  319.514283] ccll: ATU key build failed (AF not IPv4)
+[  319.514322] ccll: ATU missing and no cache — neutral update this ACK
+[  319.514329] ccll: neutral update (no ATU)
+[  323.045414] ccllcc_cwnd_event: 22 callbacks suppressed
+[  323.045417] ccll: cwnd_event ev=1 s=0.0.0.0:46398 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  323.045420] ccll: cwnd_event restart (set floor, target=9, cwnd=10)
+[  323.045427] ccll: cwnd_event ev=0 s=0.0.0.0:46398 -> d=0.0.0.0:443 cwnd=10 ssthresh=7
+[  323.158962] ccllcc_acked: 26 callbacks suppressed
+[  323.158973] ccll: pkts_acked pre rtt_us=113495 inflight=25 s=0.0.0.0:46398 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  323.158979] ccllcc_acked: 24 callbacks suppressed
+[  323.158983] ccll: rtt update rtt_us=113495 min_rtt=110898
+[  323.158986] ccllcc_acked: 24 callbacks suppressed
+[  323.158990] ccll: lookup atu from header enter
+[  323.158997] ccll: lookup atu from header enter
+[  323.159001] ccll: ATU key build failed (AF not IPv4)
+[  323.159004] ccll: ATU missing and no cache — neutral update this ACK
+[  323.159007] ccll: neutral update (no ATU)
+[  323.159011] ccllcc_acked: 24 callbacks suppressed
+[  323.159014] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  323.159018] ccllcc_acked: 24 callbacks suppressed
+[  323.159021] ccll: rate apply before=1000 after=1000
+[  323.159025] ccllcc_acked: 24 callbacks suppressed
+[  323.159028] ccll: pkts_acked post rtt_us=113495 min_rtt=110898 atu=0 rate_kbps=1000 cwnd_target=9 inflight=0
+[  323.159035] ccllcc_cong_avoid: 13 callbacks suppressed
+[  323.159039] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=9
+[  324.581850] ccll: cwnd_event ev=1 s=0.0.0.0:41284 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  324.581859] ccll: cwnd_event restart (set floor, target=9, cwnd=10)
+[  324.581864] ccll: cwnd_event ev=0 s=0.0.0.0:41284 -> d=0.0.0.0:443 cwnd=10 ssthresh=7
+[  325.574907] ccll: pkts_acked pre rtt_us=125591 inflight=1 s=0.0.0.0:58028 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=0
+[  325.574912] ccll: rtt update rtt_us=125591 min_rtt=125591
+[  325.574914] ccll: bootstrap rate_kbps=955 from cwnd=10 rtt=125591
+[  325.574914] ccll: lookup atu from header enter
+[  325.574915] ccll: lookup atu from header enter
+[  325.574915] ccll: ATU key build failed (AF not IPv4)
+[  325.574915] ccll: ATU missing and no cache — neutral update this ACK
+[  325.574916] ccll: neutral update (no ATU)
+[  325.574916] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  325.574917] ccll: rate apply before=955 after=955
+[  325.574917] ccll: pkts_acked post rtt_us=125591 min_rtt=125591 atu=0 rate_kbps=955 cwnd_target=9 inflight=0
+[  325.575124] ccll: cwnd_event ev=0 s=0.0.0.0:58028 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  325.693504] ccll: pkts_acked pre rtt_us=118374 inflight=268 s=0.0.0.0:58028 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  325.693518] ccll: rtt update rtt_us=118374 min_rtt=118374
+[  325.693519] ccll: lookup atu from header enter
+[  325.693520] ccll: lookup atu from header enter
+[  325.693520] ccll: ATU key build failed (AF not IPv4)
+[  325.693520] ccll: ATU missing and no cache — neutral update this ACK
+[  325.693521] ccll: neutral update (no ATU)
+[  325.693521] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  325.693522] ccll: rate apply before=1000 after=1000
+[  325.693523] ccll: pkts_acked post rtt_us=118374 min_rtt=118374 atu=0 rate_kbps=1000 cwnd_target=9 inflight=0
+[  325.693525] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=9
+[  325.694229] ccll: cwnd_event ev=0 s=0.0.0.0:58028 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  325.811007] ccll: pkts_acked pre rtt_us=116585 inflight=3512 s=0.0.0.0:58028 -> d=0.0.0.0:443 cwnd=10 rate_kbps(before)=1000
+[  325.811025] ccll: rtt update rtt_us=116585 min_rtt=116585
+[  325.811026] ccll: lookup atu from header enter
+[  325.811026] ccll: lookup atu from header enter
+[  325.811027] ccll: ATU key build failed (AF not IPv4)
+[  325.811027] ccll: ATU missing and no cache — neutral update this ACK
+[  325.811027] ccll: neutral update (no ATU)
+[  325.811028] ccll: rate step cwnd=9 lg(update*FPS)=518124 per_pkt_update=1
+[  325.811029] ccll: rate apply before=1000 after=1000
+[  325.811030] ccll: pkts_acked post rtt_us=116585 min_rtt=116585 atu=0 rate_kbps=1000 cwnd_target=9 inflight=0
+[  325.811032] ccll: cong_avoid (not-limited/waiting-ok) cwnd=10 inflight=0 target=9
+[  331.034588] ccll: cwnd_event ev=1 s=0.0.0.0:58028 -> d=0.0.0.0:443 cwnd=10 ssthresh=0
+[  331.034612] ccll: cwnd_event restart (set floor, target=9, cwnd=10)
+[  331.034644] ccll: cwnd_event ev=0 s=0.0.0.0:58028 -> d=0.0.0.0:443 cwnd=10 ssthresh=7
+parallels@ubuntu-linux-22-04-desktop:~/fork/Soze_Linux$ sudo dmesg | grep "ccll_nf"
+[  314.952686] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952688] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952689] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952690] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952690] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952727] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952728] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952729] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952730] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000
+[  314.952730] ccll_nf: ATU ACK 10.0.0.2:53254 -> 10.0.0.1:5000 n=9000 d=10000

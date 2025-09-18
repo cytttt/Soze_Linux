@@ -92,6 +92,9 @@ sudo bash local-setup-tx.bash
 dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000
 
 dd if=/dev/zero bs=1460 count=200 2>/dev/null | nc -q 5 10.0.0.1 5000
+
+dd if=/dev/zero bs=1460 count=200 2>/dev/null \
+  | nc -s 10.0.0.2 -p 40000 -q 5 10.0.0.1 5000
 ```
 
 ### Eval
@@ -134,8 +137,8 @@ sudo apt-get install -y libnl-3-dev libnl-genl-3-dev libnl-utils
 genl-ctrl-list | grep -i ccll
 
 
-gcc -O2 -Wall -I/usr/include/libnl3 -o tools/set_weight tools/set_weight.c -lnl-3 -lnl-genl-3
-sudo ./tools/set_weight --saddr 10.0.0.2 --sport 5000 \
-    --daddr 10.0.0.1 --dport 40000 \
-    --weight 150000
+sudo gcc -O2 -Wall -I/usr/include/libnl3 -o tools/set_weight tools/set_weight.c -lnl-3 -lnl-genl-3
+sudo ./tools/set_weight --saddr 10.0.0.2 --sport 40000 \
+    --daddr 10.0.0.1 --dport 50000 \
+    --weight 120000
 ```
