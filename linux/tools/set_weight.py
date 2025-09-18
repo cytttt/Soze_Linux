@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-from pyroute2 import Genl
+# from pyroute2 import Genl
+from pyroute2.netlink.generic import GenericNetlinkSocket as Genl
 from socket import htons, htonl
 import argparse, ipaddress
 
-# set_weight.py --saddr 10.0.0.2 --sport 5000 --daddr 10.0.0.1 --dport 40000 --weight 150000
+# sudo python3 tools/set_weight.py --saddr 10.0.0.2 --sport 5000 --daddr 10.0.0.1 --dport 40000 --weight 150000
 
 ap = argparse.ArgumentParser(description='Set per-flow weight (1e5 scale) via genetlink')
 ap.add_argument('--saddr', required=True, help='source IP (IPv4)')
