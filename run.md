@@ -47,7 +47,7 @@ sudo apt-get install -y clang llvm bpftool make gcc libbpf-dev iproute2 net-tool
 #### Setup
 ```
 cd linux
-make all ATU_TEST_MODE=1
+make all 
 sudo bash clean.bash
 sudo bash setup.bash
 sudo bash setup-ccll.bash
@@ -82,25 +82,16 @@ bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
 
 #### setup
 ```
-bash local-setup-tx.bash
+sudo bash local-setup-tx.bash
 # sudo ip netns exec send sysctl -w net.ipv4.tcp_congestion_control=ccll
 
 ```
 #### test
 ```
 # ignore cksum
-sudo ip netns exec send bash -lc '
-    ethtool -K veth-s rx off tx off tso off gso off gro off lro off
-    dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000
-'
+dd if=/dev/zero bs=1k count=1 2>/dev/null | nc -q 1 10.0.0.1 5000
 
-sudo ip netns exec send bash -lc '
-  ethtool -K veth-s rx off tx off tso off gso off gro off lro off || true
-  dd if=/dev/zero bs=1460 count=200 2>/dev/null | nc -q 5 10.0.0.1 5000
-'
-
-# check sender side map
-bpftool map dump pinned /sys/fs/bpf/tc/ack_atu_by_flow
+dd if=/dev/zero bs=1460 count=200 2>/dev/null | nc -q 5 10.0.0.1 5000
 ```
 
 ### Eval
