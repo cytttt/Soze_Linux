@@ -11,7 +11,6 @@ PKG_NAME := ccll
 dkms_package_version := $(shell awk -F= '$$1 == "PACKAGE_VERSION" { gsub("\"", "", $$2); print $$2 }' dkms.conf)
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
-NF_ATU_ENABLED ?= 1
 
 RX_IF ?= eth0
 TX_IF ?= eth1
@@ -56,7 +55,9 @@ BPF_CFLAGS := -O2 -g -target bpf \
 # Test-mode toggle (0=off, 1=on). When on, RX fills default numer/denom if TLV missing.
 ATU_TEST_MODE ?= 1
 BPF_CFLAGS += -DATU_TEST_MODE=$(ATU_TEST_MODE)
-
+NF_ATU_ENABLED    ?= 1
+WEIGHT_CTL_ENABLED?= 1 
+DEFAULT_WEIGHT    ?= 100000
 # Sender-side sk_storage toggle (0=omit, 1=include). Some kernels reject SK_STORAGE at tc.
 SEND_USE_SK_STORAGE ?= 0
 BUILD_TX_EBPF ?= 0
@@ -69,7 +70,9 @@ kmod:
 	$(MAKE) -C $(KDIR) M=$$PWD modules
 
 insmod: kmod
-	sudo insmod ./ccll.ko nf_atu_enabled=$(NF_ATU_ENABLED) || true
+	sudo insmod ./ccll.ko nf_atu_enabled=$(NF_ATU_ENABLED) \
+	  weight_ctl_enabled=$(WEIGHT_CTL_ENABLED) \
+	  default_weight=$(DEFAULT_WEIGHT) || true
 
 rmmod:
 	sudo rmmod ccll || true

@@ -7,7 +7,8 @@ if lsmod | awk '{print $1}' | grep -qx ccll; then
 fi
 
 # Insert module (Netfilter ACK parser enabled by default via module param)
-insmod ccll.ko nf_atu_enabled=1
+# insmod ccll.ko nf_atu_enabled=1
+insmod ccll.ko nf_atu_enabled=1 weight_ctl_enabled=1 default_weight=100000
 
 # Switch system TCP CC to ccll if available
 if sysctl -n net.ipv4.tcp_available_congestion_control | tr ' ' '\n' | grep -qx ccll; then

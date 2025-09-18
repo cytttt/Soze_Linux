@@ -104,7 +104,10 @@ setup_sender() {
     exit 1
   fi
   echo "[host-setup] Inserting module: $MOD_PATH (nf_atu_enabled=${NF_ATU_ENABLED})"
-  insmod "$MOD_PATH" nf_atu_enabled=${NF_ATU_ENABLED}
+  # insmod "$MOD_PATH" nf_atu_enabled=${NF_ATU_ENABLED} 
+  insmod "$MOD_PATH" nf_atu_enabled=${NF_ATU_ENABLED} \
+    weight_ctl_enabled=${WEIGHT_CTL_ENABLED:-1} \
+    default_weight=${DEFAULT_WEIGHT:-100000}
 
   # Set congestion control to ccll
   echo "[host-setup] Switching tcp_congestion_control to 'ccll'"
