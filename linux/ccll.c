@@ -58,6 +58,8 @@
 #include <linux/inet.h>       // in_aton
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
+#include <net/genetlink.h>
+#include <linux/netlink.h>
 
 /* ========================= [2] Config & Module Params ========================= */
 
@@ -95,6 +97,17 @@ MODULE_PARM_DESC(atu_enabled, "Enable ATU-based congestion control");
 
 module_param(atu_timeout_ms, uint, 0644);
 MODULE_PARM_DESC(atu_timeout_ms, "ATU data timeout in milliseconds");
+
+/* Per-flow weight control (multiplicative factor on T), scaled by 1e5 */
+static u32 weight_scale __read_mostly = 100000;     /* 1.0 * 1e5 */
+static u32 default_weight __read_mostly = 100000;   /* default 1.0x */
+module_param(default_weight, uint, 0644);
+MODULE_PARM_DESC(default_weight, "Default per-flow weight (1e5 = 1.0x)");
+
+/* Enable/disable Generic Netlink control channel (for setting weights) */
+static bool weight_ctl_enabled = true;
+module_param(weight_ctl_enabled, bool, 0644);
+MODULE_PARM_DESC(weight_ctl_enabled, "Enable Generic Netlink control for per-flow weight");
 
 // just use ccll value
 // static u64 ln10e5_min_rate __read_mostly = 1381551;     // ln(Kbps) * 100,000
@@ -141,6 +154,7 @@ struct atu_flow_entry {
     struct hlist_node hnode;
     struct atu_flow_key key;
     struct atu_state state;
+    u32 weight;        // per-flow multiplicative weight (1e5 scale)
 };
 
 /* Forward declaration: helper to parse TCP ACK and ATU option in Netfilter hook */
@@ -266,16 +280,150 @@ static void atu_flow_update(const struct atu_flow_key *key, const struct atu_sta
     spin_lock_irqsave(&atu_flow_lock, flags);
     entry = atu_flow_find(key);
     if (entry) {
+        /* Preserve weight, only update ATU state */
         entry->state = *state;
     } else {
         entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
         if (entry) {
             entry->key = *key;
             entry->state = *state;
+            entry->weight = default_weight; /* initialize weight */
             hash_add(atu_flow_table, &entry->hnode, atu_flow_key_hash(key));
         }
     }
     spin_unlock_irqrestore(&atu_flow_lock, flags);
+}
+/* ---------------- Generic Netlink: per-flow weight control ---------------- */
+
+#define CCLL_GENL_FAMILY_NAME  "ccll"
+#define CCLL_GENL_VERSION      0x1
+
+enum ccll_genl_cmd {
+    CCLL_C_UNSPEC,
+    CCLL_C_SET_WEIGHT,   /* set weight for 4-tuple flow */
+    __CCLL_C_MAX,
+};
+#define CCLL_C_MAX (__CCLL_C_MAX - 1)
+
+enum ccll_genl_attr {
+    CCLL_A_UNSPEC,
+    CCLL_A_SADDR,     /* u32: IPv4 src (network order) */
+    CCLL_A_DADDR,     /* u32: IPv4 dst (network order) */
+    CCLL_A_SPORT,     /* u16: src port (network order) */
+    CCLL_A_DPORT,     /* u16: dst port (network order) */
+    CCLL_A_WEIGHT,    /* u32: 1e5 scaled */
+    __CCLL_A_MAX,
+};
+#define CCLL_A_MAX (__CCLL_A_MAX - 1)
+
+static const struct nla_policy ccll_genl_policy[CCLL_A_MAX + 1] = {
+    [CCLL_A_SADDR]  = { .type = NLA_U32 },
+    [CCLL_A_DADDR]  = { .type = NLA_U32 },
+    [CCLL_A_SPORT]  = { .type = NLA_U16 },
+    [CCLL_A_DPORT]  = { .type = NLA_U16 },
+    [CCLL_A_WEIGHT] = { .type = NLA_U32 },
+};
+
+static struct genl_family ccll_genl_family = {
+    .hdrsize = 0,
+    .name    = CCLL_GENL_FAMILY_NAME,
+    .version = CCLL_GENL_VERSION,
+    .maxattr = CCLL_A_MAX,
+    .netnsok = true,
+    .module  = THIS_MODULE,
+};
+
+static int ccll_genl_set_weight(struct sk_buff *skb, struct genl_info *info)
+{
+    struct atu_flow_key key;
+    struct atu_flow_entry *entry;
+    unsigned long flags;
+    u32 w;
+
+    if (!info || !info->attrs[CCLL_A_SADDR] || !info->attrs[CCLL_A_DADDR] ||
+        !info->attrs[CCLL_A_SPORT] || !info->attrs[CCLL_A_DPORT] ||
+        !info->attrs[CCLL_A_WEIGHT])
+        return -EINVAL;
+
+    key.saddr   = nla_get_u32(info->attrs[CCLL_A_SADDR]);
+    key.daddr   = nla_get_u32(info->attrs[CCLL_A_DADDR]);
+    key.sport   = nla_get_u16(info->attrs[CCLL_A_SPORT]);
+    key.dport   = nla_get_u16(info->attrs[CCLL_A_DPORT]);
+    key.protocol = IPPROTO_TCP;
+
+    w = nla_get_u32(info->attrs[CCLL_A_WEIGHT]);
+    /* clamp weight to [0.1, 10.0] in 1e5 scale for safety */
+    if (w < 10000)  w = 10000;      /* 0.1x */
+    if (w > 1000000) w = 1000000;   /* 10x */
+
+    spin_lock_irqsave(&atu_flow_lock, flags);
+    entry = atu_flow_find(&key);
+    if (!entry) {
+        entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
+        if (entry) {
+            memset(&entry->state, 0, sizeof(entry->state));
+            entry->key = key;
+            entry->weight = w;
+            hash_add(atu_flow_table, &entry->hnode, atu_flow_key_hash(&key));
+        }
+    } else {
+        entry->weight = w;
+    }
+    spin_unlock_irqrestore(&atu_flow_lock, flags);
+
+    pr_info_ratelimited("ccll_genl: set_weight %pI4:%u -> %pI4:%u w=%u\n",
+                        &key.saddr, ntohs(key.sport), &key.daddr, ntohs(key.dport), w);
+    return 0;
+}
+
+static const struct genl_ops ccll_genl_ops[] = {
+    {
+        .cmd    = CCLL_C_SET_WEIGHT,
+        .flags  = 0,
+        .policy = ccll_genl_policy,
+        .doit   = ccll_genl_set_weight,
+    },
+};
+
+static int ccll_genl_register(void)
+{
+    int ret;
+
+    ret = genl_register_family(&ccll_genl_family);
+    if (ret)
+        return ret;
+
+    ret = genl_register_ops(&ccll_genl_family, &ccll_genl_ops[0]);
+    if (ret) {
+        genl_unregister_family(&ccll_genl_family);
+        return ret;
+    }
+    pr_info("ccll: genetlink weight control registered\n");
+    return 0;
+}
+
+static void ccll_genl_unregister(void)
+{
+    genl_unregister_family(&ccll_genl_family);
+    pr_info("ccll: genetlink weight control unregistered\n");
+}
+/* Get per-flow weight (1e5 scale). Falls back to default_weight if not present. */
+static u32 get_flow_weight(struct sock *sk)
+{
+    struct atu_flow_key key;
+    struct atu_flow_entry *entry;
+    unsigned long flags;
+    u32 w = default_weight;
+
+    if (!get_atu_flow_key(sk, &key))
+        return w;
+
+    spin_lock_irqsave(&atu_flow_lock, flags);
+    entry = atu_flow_find(&key);
+    if (entry && entry->weight)
+        w = entry->weight;
+    spin_unlock_irqrestore(&atu_flow_lock, flags);
+    return w;
 }
 
 /* ============================= [7] Netfilter (ACK parser) ============================= */
@@ -707,6 +855,15 @@ static void ccllcc_acked(struct sock *sk, const struct ack_sample *sample)
                                 (unsigned long long)lg_frac, (unsigned long long)lg_T);
         }
 
+        /* Apply per-flow weight: T' = T * weight */
+        {
+            u32 w = get_flow_weight(sk);
+            u64 lg_w = log_approx((u64)w); /* ln(weight) * 1e5, weight is 1e5-scaled */
+            lg_T += lg_w;
+            pr_info_ratelimited("ccll: apply weight w=%u lg_w=%llu => lg_T'=%llu\n",
+                                w, (unsigned long long)lg_w, (unsigned long long)lg_T);
+        }
+
         /* U = (T/r)^{Kp} ; compute in log domain then exponentiate */
         {
             s64 lgU = ((s64)lg_T - (s64)lg_rate) * (s64)k_p_fraction / (s64)k_p_scale;
@@ -792,6 +949,17 @@ static int __init ccll_register(void)
         }
     }
 
+    /* Register Generic Netlink control for per-flow weight */
+    if (weight_ctl_enabled) {
+        ret = ccll_genl_register();
+        if (ret < 0) {
+            if (nf_atu_enabled)
+                ccll_nf_unregister();
+            tcp_unregister_congestion_control(&ccll);
+            return ret;
+        }
+    }
+
     return 0;
 }
 
@@ -799,6 +967,8 @@ static int __init ccll_register(void)
 static void __exit ccll_unregister(void)
 {
     pr_info("c2l2: unregister\n");
+    if (weight_ctl_enabled)
+        ccll_genl_unregister();
     if (nf_atu_enabled)
         ccll_nf_unregister();
     tcp_unregister_congestion_control(&ccll);
