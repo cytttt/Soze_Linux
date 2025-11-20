@@ -44,7 +44,7 @@ struct metadata_t {
     nexthop_t nexthop;
     ifindex_t ingress_ifindex;
     ifindex_t egress_ifindex;
-}
+};
 
 struct eg_calc_md_t {
     // numer
@@ -56,8 +56,7 @@ struct eg_calc_md_t {
     bit<32> queue_out;
     bit<32> tmp32b; // for queue_out << 3
     bit<32> denom_tmp;
-
-}
+};
 
 struct eg_d_calc_md_t {
     bit<16> sum16;      // accumulate  16-bit sum of max atu
@@ -66,7 +65,7 @@ struct eg_d_calc_md_t {
     bit<17> op17;   
     bit<16> lo16; 
     bit<16> hi16;
-}
+};
 
 // LPF for Egress
 Lpf<bit<32>, bit<10>>(1) lpf_rate;
@@ -104,7 +103,8 @@ parser CcllIngressParser(
         pkt.extract(hdr.ethernet);
         transition select(hdr.ethernet.ether_type) {
             ETHERTYPE_IPV4 : parse_ipv4;
-            default : reject;
+            // default : reject;
+            default : accept;
         }
     }
 
@@ -197,7 +197,8 @@ control SwitchIngressDeparser(
         pkt.emit(hdr.udp);
         pkt.emit(hdr.tcp);
 
-        pkt.emit(hdr.max_atu);
+        pkt.emit(hdr.atu_opt);
+        pkt.emit(hdr.tcp_pad2);
     }
 }
 
@@ -236,12 +237,13 @@ control SwitchIngress(
         const default_action = rmac_miss;
         size = 1024;
     }
-
     apply {
+        hdr.ipv4.diffserv = 8w0x55; // DEBUG
         md.nexthop = 16w0;
         md.bd      = 16w0;
-        ig_tm_md.ucast_egress_port = 9w0;
-        
+        ig_tm_md.ucast_egress_port = 9w1;
+        // ig_tm_md.ucast_egress_port = 9w0;
+
         switch (rmac.apply().action_run) {
             rmac_hit : {
                 if (hdr.ipv4.isValid()) {
@@ -257,6 +259,12 @@ control SwitchIngress(
                   md.ingress_ifindex,
                   md.egress_ifindex);
         lag.apply(md.egress_ifindex, hash, ig_tm_md.ucast_egress_port);
+        
+        if (ig_tm_md.ucast_egress_port == 0) {
+            ig_tm_md.ucast_egress_port = 9w1;
+        }else {
+            ig_tm_md.ucast_egress_port = 9w1;   
+        }
     }
 }
 
@@ -340,27 +348,6 @@ control CcllEgress(
     action a_denom_add()      { eg_calc_md.denom_tmp = eg_calc_md.denom_tmp + eg_calc_md.queue_out; }
     table  t_denom_add        { actions = { a_denom_add; } const default_action = a_denom_add; }
 
-    // checksum
-    /*
-    action a_sum_clear() { eg_calc_md.sum16 = 16w0; }
-
-    action a_ext_sum()         { eg_calc_md.tmp17 = (bit<17>) eg_calc_md.sum16; }
-    action a_set_from_src16()  { eg_calc_md.op17  = (bit<17>) eg_calc_md.src16; }
-    action a_add_op()          { eg_calc_md.tmp17 = eg_calc_md.tmp17 + eg_calc_md.op17; }
-
-    action a_set_lo_from_tmp() { eg_calc_md.lo16 = (bit<16>) eg_calc_md.tmp17; }
-    action a_set_hi_from_tmp() { eg_calc_md.hi16 = (bit<16>) (eg_calc_md.tmp17 >> 16); }
-    action a_set_sum_from_lo() { eg_calc_md.sum16 = eg_calc_md.lo16; }
-    action a_add_hi_into_sum() { eg_calc_md.sum16 = eg_calc_md.sum16 + eg_calc_md.hi16; }
-
-    action a_src_from_numer_hi(){ eg_calc_md.src16 = (bit<16>) (hdr.max_atu.numer >> 16); }
-    action a_src_from_numer_lo(){ eg_calc_md.src16 = (bit<16>)  hdr.max_atu.numer; }
-    action a_src_from_denom_hi(){ eg_calc_md.src16 = (bit<16>) (hdr.max_atu.denom >> 16); }
-    action a_src_from_denom_lo(){ eg_calc_md.src16 = (bit<16>)  hdr.max_atu.denom; }
-    action a_src_from_tcp_inv() { eg_calc_md.src16 = 16w0xFFFF ^ hdr.tcp.checksum; } // ~hdr.tcp.checksum
-    action a_tcp_set_from_not_sum() { hdr.tcp.checksum = 16w0xFFFF ^ eg_calc_md.sum16; } // ~eg_calc_md.sum16
-    */
-
 
     // tcp
     action a_tcp_len_add_atu() { hdr.tcp.data_offset = hdr.tcp.data_offset + 4w3; }
@@ -370,16 +357,27 @@ control CcllEgress(
     action a_ip_len_add_atu() { hdr.ipv4.total_len = hdr.ipv4.total_len + 16w12; }
     table  t_ip_len_add_atu   { actions = { a_ip_len_add_atu; } const default_action = a_ip_len_add_atu; }
 
-    
+    // DEBUG
+    action a_force_ip_mark() {
+        hdr.ipv4.diffserv = 8w0xAA; // mark
+    }
+    table t_force_ip_mark { actions = { a_force_ip_mark; } const default_action = a_force_ip_mark; }
+
     apply {
+
+        t_force_ip_mark.apply(); // DEBUG
+
         const bit<16> ATU_LEN = 12w12;
         // check forwarding path or not
-        if (!(hdr.tcp.isValid() && !(hdr.tcp.flags == 8w0x10))) { return; } 
+        
+        // DEBUG
+        // if (!(hdr.tcp.isValid() && !(hdr.tcp.flags == 8w0x10))) { return; } 
         
         t_set_rate_out.apply();
         t_set_queue_out.apply();
            
-        if (eg_calc_md.queue_out == 0) { return; }
+        // DEBUG
+        // if (eg_calc_md.queue_out == 0) { return; }
 
         // qdiff
         t_qdiff_from_deq.apply();
@@ -434,12 +432,7 @@ control CcllEgress(
             hdr.atu_opt.denom = denom;
         }
 
-        /*
-        else {
-            hdr.max_atu.numer = numer;
-            hdr.max_atu.denom = denom;
-        } 
-        */ 
+        /* Future optimization: compare against previous option to avoid churn */
     }
 
 }
@@ -454,7 +447,6 @@ control CcllEgressDeparser<H, M>(
         in metadata_t eg_md,
         in egress_intrinsic_metadata_for_deparser_t ig_intr_dprs_md) {
     Checksum<bit<16>>(HashAlgorithm_t.CSUM16) ipv4_checksum;
-    Checksum<bit<16>>(HashAlgorithm_t.CSUM16) csum16;
 
     apply {
         hdr.ipv4.hdr_checksum = ipv4_checksum.update({ 
@@ -505,7 +497,8 @@ control CcllEgressDeparser<H, M>(
         pkt.emit(hdr.udp);
         pkt.emit(hdr.tcp);
 
-        pkt.emit(hdr.max_atu);
+        pkt.emit(hdr.atu_opt);
+        pkt.emit(hdr.tcp_pad2);
     }
 }
 

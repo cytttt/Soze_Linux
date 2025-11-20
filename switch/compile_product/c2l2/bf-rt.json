@@ -1,0 +1,3704 @@
+{
+  "tables" : [
+    {
+      "name" : "SwitchIngress.mac.smac",
+      "id" : 33558676,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "bd",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 2,
+          "name" : "src_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16789235,
+          "name" : "SwitchIngress.mac.smac_miss",
+          "data" : []
+        },
+        {
+          "id" : 16837967,
+          "name" : "SwitchIngress.mac.smac_hit",
+          "data" : [
+            {
+              "id" : 1,
+              "name" : "ifindex",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 16
+              }
+            }
+          ]
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "SwitchIngress.mac.dmac",
+      "id" : 33578229,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "bd",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 2,
+          "name" : "dst_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16833247,
+          "name" : "SwitchIngress.mac.dmac_miss",
+          "data" : []
+        },
+        {
+          "id" : 16840224,
+          "name" : "SwitchIngress.mac.dmac_hit",
+          "data" : [
+            {
+              "id" : 1,
+              "name" : "ifindex",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 16
+              }
+            }
+          ]
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "SwitchIngress.mac.mac_learning",
+      "id" : 33559211,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "src_miss",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 2,
+          "name" : "src_move",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 65537,
+          "name" : "$MATCH_PRIORITY",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32"
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16800567,
+          "name" : "NoAction",
+          "data" : []
+        },
+        {
+          "id" : 16790148,
+          "name" : "SwitchIngress.mac.notify",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope"]
+    },
+    {
+      "name" : "SwitchIngress.fib.fib",
+      "id" : 33575732,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "vrf",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 2,
+          "name" : "dst_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 32
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16793653,
+          "name" : "SwitchIngress.fib.fib_miss",
+          "data" : []
+        },
+        {
+          "id" : 16789856,
+          "name" : "SwitchIngress.fib.fib_hit",
+          "data" : [
+            {
+              "id" : 1,
+              "name" : "nexthop_index",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 16
+              }
+            }
+          ]
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "SwitchIngress.fib.fib_lpm",
+      "id" : 33593252,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "vrf",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 2,
+          "name" : "dst_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "LPM",
+          "type" : {
+            "type" : "bytes",
+            "width" : 32
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16793653,
+          "name" : "SwitchIngress.fib.fib_miss",
+          "data" : []
+        },
+        {
+          "id" : 16789856,
+          "name" : "SwitchIngress.fib.fib_hit",
+          "data" : [
+            {
+              "id" : 1,
+              "name" : "nexthop_index",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 16
+              }
+            }
+          ]
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope"]
+    },
+    {
+      "name" : "SwitchIngress.nexthop.ecmp",
+      "id" : 33595590,
+      "table_type" : "MatchAction_Indirect_Selector",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "nexthop_index",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "oneof" : [
+            {
+              "id" : 65539,
+              "name" : "$ACTION_MEMBER_ID",
+              "repeated" : false,
+              "annotations" : [],
+              "type" : {
+                "type" : "uint32"
+              }
+            },
+            {
+              "id" : 65540,
+              "name" : "$SELECTOR_GROUP_ID",
+              "repeated" : false,
+              "annotations" : [],
+              "type" : {
+                "type" : "uint32"
+              }
+            }
+          ]
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "SwitchIngress.nexthop.nexthop",
+      "id" : 33592620,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "nexthop_index",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16800567,
+          "name" : "NoAction",
+          "data" : []
+        },
+        {
+          "id" : 16831384,
+          "name" : "SwitchIngress.nexthop.set_nexthop_attribures",
+          "data" : [
+            {
+              "id" : 1,
+              "name" : "bd",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 16
+              }
+            },
+            {
+              "id" : 2,
+              "name" : "dmac",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 48
+              }
+            }
+          ]
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "SwitchIngress.lag.lag",
+      "id" : 33572115,
+      "table_type" : "MatchAction_Indirect_Selector",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "ifindex",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "oneof" : [
+            {
+              "id" : 65539,
+              "name" : "$ACTION_MEMBER_ID",
+              "repeated" : false,
+              "annotations" : [],
+              "type" : {
+                "type" : "uint32"
+              }
+            },
+            {
+              "id" : 65540,
+              "name" : "$SELECTOR_GROUP_ID",
+              "repeated" : false,
+              "annotations" : [],
+              "type" : {
+                "type" : "uint32"
+              }
+            }
+          ]
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "SwitchIngress.rmac",
+      "id" : 33581749,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 1,
+          "name" : "hdr.ethernet.dst_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16819862,
+          "name" : "SwitchIngress.rmac_hit",
+          "data" : []
+        },
+        {
+          "id" : 16826479,
+          "name" : "SwitchIngress.rmac_miss",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_set_rate_out",
+      "id" : 33591118,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16814664,
+          "name" : "CcllEgress.a_set_rate_out",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_set_queue_out",
+      "id" : 33575819,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16805416,
+          "name" : "CcllEgress.a_set_queue_out",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_qdiff_from_deq",
+      "id" : 33581892,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16806900,
+          "name" : "CcllEgress.a_qdiff_from_deq",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_qdiff_sub_enq",
+      "id" : 33572735,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16813044,
+          "name" : "CcllEgress.a_qdiff_sub_enq",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_qdiff_to_tmp32",
+      "id" : 33596579,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16786249,
+          "name" : "CcllEgress.a_qdiff_to_tmp32",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_numer_set_rate",
+      "id" : 33604684,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16780446,
+          "name" : "CcllEgress.a_numer_set_rate",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_numer_add_tmp32",
+      "id" : 33562983,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16819639,
+          "name" : "CcllEgress.a_numer_add_tmp32",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_tmp32a_clear",
+      "id" : 33610107,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16786556,
+          "name" : "CcllEgress.a_tmp32a_clear",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_numer_shl3",
+      "id" : 33617858,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16786838,
+          "name" : "CcllEgress.a_numer_shl3",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_clear_after_numer",
+      "id" : 33590679,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16804889,
+          "name" : "CcllEgress.a_clear_after_numer",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_denom_set_shl4",
+      "id" : 33615021,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16832512,
+          "name" : "CcllEgress.a_denom_set_shl4",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_queue_shl3_store",
+      "id" : 33562481,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16789401,
+          "name" : "CcllEgress.a_queue_shl3_store",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_denom_add_tmp",
+      "id" : 33588722,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16813103,
+          "name" : "CcllEgress.a_denom_add_tmp",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_denom_add",
+      "id" : 33561917,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16811666,
+          "name" : "CcllEgress.a_denom_add",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_tcp_len_add_atu",
+      "id" : 33565091,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16837139,
+          "name" : "CcllEgress.a_tcp_len_add_atu",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_ip_len_add_atu",
+      "id" : 33600271,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16816180,
+          "name" : "CcllEgress.a_ip_len_add_atu",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "CcllEgress.t_force_ip_mark",
+      "id" : 33567636,
+      "table_type" : "MatchAction_Direct",
+      "size" : 1024,
+      "key" : [],
+      "action_specs" : [
+        {
+          "id" : 16817496,
+          "name" : "CcllEgress.a_force_ip_mark",
+          "data" : []
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : ["EntryScope", "DynamicKeyMask"]
+    },
+    {
+      "name" : "lpf_rate",
+      "id" : 2298538946,
+      "table_type" : "Lpf",
+      "size" : 1,
+      "key" : [
+        {
+          "id" : 65567,
+          "name" : "$LPF_INDEX",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32"
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65556,
+            "name" : "$LPF_SPEC_TYPE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "enum",
+              "choices" : ["RATE", "SAMPLE"]
+            }
+          }
+        },
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65557,
+            "name" : "$LPF_SPEC_GAIN_TIME_CONSTANT_NS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "float"
+            }
+          }
+        },
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65558,
+            "name" : "$LPF_SPEC_DECAY_TIME_CONSTANT_NS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "float"
+            }
+          }
+        },
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65559,
+            "name" : "$LPF_SPEC_OUT_SCALE_DOWN_FACTOR",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "lpf_queue",
+      "id" : 2298483205,
+      "table_type" : "Lpf",
+      "size" : 1,
+      "key" : [
+        {
+          "id" : 65567,
+          "name" : "$LPF_INDEX",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32"
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65556,
+            "name" : "$LPF_SPEC_TYPE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "enum",
+              "choices" : ["RATE", "SAMPLE"]
+            }
+          }
+        },
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65557,
+            "name" : "$LPF_SPEC_GAIN_TIME_CONSTANT_NS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "float"
+            }
+          }
+        },
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65558,
+            "name" : "$LPF_SPEC_DECAY_TIME_CONSTANT_NS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "float"
+            }
+          }
+        },
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65559,
+            "name" : "$LPF_SPEC_OUT_SCALE_DOWN_FACTOR",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "SwitchIngress.nexthop.ecmp_selector",
+      "id" : 2164302757,
+      "table_type" : "Action",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 65539,
+          "name" : "$ACTION_MEMBER_ID",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32"
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16800567,
+          "name" : "NoAction",
+          "data" : []
+        },
+        {
+          "id" : 16831384,
+          "name" : "SwitchIngress.nexthop.set_nexthop_attribures",
+          "data" : [
+            {
+              "id" : 1,
+              "name" : "bd",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 16
+              }
+            },
+            {
+              "id" : 2,
+              "name" : "dmac",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 48
+              }
+            }
+          ]
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "SwitchIngress.nexthop.ecmp_selector_sel",
+      "id" : 2181079973,
+      "table_type" : "Selector",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 65540,
+          "name" : "$SELECTOR_GROUP_ID",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32"
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65539,
+            "name" : "$ACTION_MEMBER_ID",
+            "repeated" : true,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65541,
+            "name" : "$ACTION_MEMBER_STATUS",
+            "repeated" : true,
+            "annotations" : [],
+            "type" : {
+              "type" : "bool"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65542,
+            "name" : "$MAX_GROUP_SIZE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32",
+              "default_value" : 120
+            }
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "SwitchIngress.lag.lag_selector",
+      "id" : 2164262071,
+      "table_type" : "Action",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 65539,
+          "name" : "$ACTION_MEMBER_ID",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32"
+          }
+        }
+      ],
+      "action_specs" : [
+        {
+          "id" : 16812231,
+          "name" : "SwitchIngress.lag.lag_miss",
+          "data" : []
+        },
+        {
+          "id" : 16782434,
+          "name" : "SwitchIngress.lag.set_port",
+          "data" : [
+            {
+              "id" : 1,
+              "name" : "port",
+              "repeated" : false,
+              "mandatory" : true,
+              "annotations" : [],
+              "type" : {
+                "type" : "bytes",
+                "width" : 9
+              }
+            }
+          ]
+        }
+      ],
+      "data" : [],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "SwitchIngress.lag.lag_selector_sel",
+      "id" : 2181039287,
+      "table_type" : "Selector",
+      "size" : 1024,
+      "key" : [
+        {
+          "id" : 65540,
+          "name" : "$SELECTOR_GROUP_ID",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32"
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65539,
+            "name" : "$ACTION_MEMBER_ID",
+            "repeated" : true,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65541,
+            "name" : "$ACTION_MEMBER_STATUS",
+            "repeated" : true,
+            "annotations" : [],
+            "type" : {
+              "type" : "bool"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65542,
+            "name" : "$MAX_GROUP_SIZE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32",
+              "default_value" : 120
+            }
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "pipe0.$SNAPSHOT_EGRESS",
+      "id" : 2432712221,
+      "table_type" : "Snapshot",
+      "size" : 12,
+      "key" : [
+        {
+          "id" : 65571,
+          "name" : "$SNAPSHOT_TRIGGER_STAGE",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32",
+            "default_value" : 0
+          }
+        },
+        {
+          "id" : 65572,
+          "name" : "$SNAPSHOT_END_STAGE",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32",
+            "default_value" : 11
+          }
+        },
+        {
+          "id" : 1,
+          "name" : "hdr.ethernet.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 2,
+          "name" : "hdr.ethernet.dst_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        },
+        {
+          "id" : 3,
+          "name" : "hdr.ethernet.ether_type",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 4,
+          "name" : "hdr.vlan_tag.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 5,
+          "name" : "hdr.vlan_tag.pcp",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 3
+          }
+        },
+        {
+          "id" : 6,
+          "name" : "hdr.vlan_tag.cfi",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 7,
+          "name" : "hdr.vlan_tag.vid",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 12
+          }
+        },
+        {
+          "id" : 8,
+          "name" : "hdr.ipv4.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 9,
+          "name" : "hdr.ipv4.version",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 4
+          }
+        },
+        {
+          "id" : 10,
+          "name" : "hdr.ipv4.diffserv",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 8
+          }
+        },
+        {
+          "id" : 11,
+          "name" : "hdr.ipv4.frag_offset",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 13
+          }
+        },
+        {
+          "id" : 12,
+          "name" : "hdr.ipv4.src_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 32
+          }
+        },
+        {
+          "id" : 13,
+          "name" : "hdr.ipv6.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 14,
+          "name" : "hdr.ipv6.flow_label",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 20
+          }
+        },
+        {
+          "id" : 15,
+          "name" : "hdr.ipv6.src_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 128
+          }
+        },
+        {
+          "id" : 16,
+          "name" : "hdr.udp.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 17,
+          "name" : "hdr.tcp.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 18,
+          "name" : "hdr.atu_opt.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 19,
+          "name" : "hdr.tcp_pad2.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 36,
+          "name" : "eg_md.bd",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 37,
+          "name" : "eg_intr_md._pad0",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 7
+          }
+        },
+        {
+          "id" : 38,
+          "name" : "eg_intr_md.egress_port",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 9
+          }
+        },
+        {
+          "id" : 39,
+          "name" : "eg_intr_md._pad1",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 5
+          }
+        },
+        {
+          "id" : 40,
+          "name" : "eg_intr_md.enq_qdepth",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 19
+          }
+        },
+        {
+          "id" : 41,
+          "name" : "eg_intr_md._pad2",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 6
+          }
+        },
+        {
+          "id" : 42,
+          "name" : "eg_intr_md.enq_congest_stat",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 2
+          }
+        },
+        {
+          "id" : 43,
+          "name" : "eg_intr_md._pad3",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 14
+          }
+        },
+        {
+          "id" : 44,
+          "name" : "eg_intr_md.enq_tstamp",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 18
+          }
+        },
+        {
+          "id" : 45,
+          "name" : "eg_intr_md.app_pool_congest_stat",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 8
+          }
+        },
+        {
+          "id" : 46,
+          "name" : "eg_intr_md.egress_rid",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 47,
+          "name" : "eg_intr_md.egress_rid_first",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 48,
+          "name" : "eg_intr_md._pad8",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 3
+          }
+        },
+        {
+          "id" : 49,
+          "name" : "eg_intr_md_from_prsr.global_tstamp",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        },
+        {
+          "id" : 50,
+          "name" : "eg_intr_md_from_prsr.global_ver",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 32
+          }
+        },
+        {
+          "id" : 51,
+          "name" : "eg_intr_md_from_prsr.parser_err",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 52,
+          "name" : "ig_intr_dprs_md.drop_ctl",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 3
+          }
+        },
+        {
+          "id" : 53,
+          "name" : "ig_intr_dprs_md.coalesce_flush",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 54,
+          "name" : "ig_intr_dprs_md.coalesce_length",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 7
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65573,
+            "name" : "$SNAPSHOT_ENABLE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "bool"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65574,
+            "name" : "$SNAPSHOT_STATUS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "enum",
+              "choices" : ["PASSIVE", "ARMED", "TRIGGER_HAPPY", "FULL"]
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65575,
+            "name" : "$SNAPSHOT_TIMER_ENABLE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "bool",
+              "default_value" : false
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65576,
+            "name" : "$SNAPSHOT_TIMER_VALUE_USECS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65577,
+            "name" : "$SNAPSHOT_FIELD_INFO",
+            "repeated" : true,
+            "annotations" : [],
+            "container" : [
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65581,
+                  "name" : "$SNAPSHOT_STAGE_ID",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "uint32"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 1,
+                  "name" : "hdr.ethernet.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 2,
+                  "name" : "hdr.ethernet.dst_addr",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 48
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 3,
+                  "name" : "hdr.ethernet.ether_type",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 4,
+                  "name" : "hdr.vlan_tag.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 5,
+                  "name" : "hdr.vlan_tag.pcp",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 3
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 6,
+                  "name" : "hdr.vlan_tag.cfi",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 7,
+                  "name" : "hdr.vlan_tag.vid",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 12
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 8,
+                  "name" : "hdr.ipv4.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 9,
+                  "name" : "hdr.ipv4.version",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 4
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 10,
+                  "name" : "hdr.ipv4.diffserv",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 8
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 11,
+                  "name" : "hdr.ipv4.frag_offset",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 13
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 12,
+                  "name" : "hdr.ipv4.src_addr",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 32
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 13,
+                  "name" : "hdr.ipv6.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 14,
+                  "name" : "hdr.ipv6.flow_label",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 20
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 15,
+                  "name" : "hdr.ipv6.src_addr",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 128
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 16,
+                  "name" : "hdr.udp.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 17,
+                  "name" : "hdr.tcp.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 18,
+                  "name" : "hdr.atu_opt.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 19,
+                  "name" : "hdr.tcp_pad2.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 36,
+                  "name" : "eg_md.bd",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 37,
+                  "name" : "eg_intr_md._pad0",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 7
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 38,
+                  "name" : "eg_intr_md.egress_port",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 9
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 39,
+                  "name" : "eg_intr_md._pad1",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 5
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 40,
+                  "name" : "eg_intr_md.enq_qdepth",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 19
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 41,
+                  "name" : "eg_intr_md._pad2",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 6
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 42,
+                  "name" : "eg_intr_md.enq_congest_stat",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 2
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 43,
+                  "name" : "eg_intr_md._pad3",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 14
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 44,
+                  "name" : "eg_intr_md.enq_tstamp",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 18
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 45,
+                  "name" : "eg_intr_md.app_pool_congest_stat",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 8
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 46,
+                  "name" : "eg_intr_md.egress_rid",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 47,
+                  "name" : "eg_intr_md.egress_rid_first",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 48,
+                  "name" : "eg_intr_md._pad8",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 3
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 49,
+                  "name" : "eg_intr_md_from_prsr.global_tstamp",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 48
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 50,
+                  "name" : "eg_intr_md_from_prsr.global_ver",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 32
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 51,
+                  "name" : "eg_intr_md_from_prsr.parser_err",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 52,
+                  "name" : "ig_intr_dprs_md.drop_ctl",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 3
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 53,
+                  "name" : "ig_intr_dprs_md.coalesce_flush",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 54,
+                  "name" : "ig_intr_dprs_md.coalesce_length",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 7
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65578,
+            "name" : "$SNAPSHOT_CONTROL_INFO",
+            "repeated" : true,
+            "annotations" : [],
+            "container" : [
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65581,
+                  "name" : "$SNAPSHOT_STAGE_ID",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "uint32"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65582,
+                  "name" : "$SNAPSHOT_PREV_STAGE_TRIGGER",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bool"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65583,
+                  "name" : "$SNAPSHOT_TIMER_TRIGGER",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bool"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65584,
+                  "name" : "$SNAPSHOT_LOCAL_STAGE_TRIGGER",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bool"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65585,
+                  "name" : "$SNAPSHOT_NEXT_TABLE_ID",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "uint32"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65579,
+                  "name" : "$SNAPSHOT_TABLE_INFO",
+                  "repeated" : true,
+                  "annotations" : [],
+                  "container" : [
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65588,
+                        "name" : "$SNAPSHOT_TABLE_ID",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "uint32"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65590,
+                        "name" : "$SNAPSHOT_MATCH_HIT_ADDRESS",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "uint32"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65591,
+                        "name" : "$SNAPSHOT_TABLE_HIT",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "bool"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65592,
+                        "name" : "$SNAPSHOT_TABLE_INHIBITED",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "bool"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65593,
+                        "name" : "$SNAPSHOT_TABLE_EXECUTED",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "bool"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "pipe0.$SNAPSHOT_EGRESS_LIVENESS",
+      "id" : 2449489437,
+      "table_type" : "SnapshotLiveness",
+      "size" : 0,
+      "key" : [
+        {
+          "id" : 65594,
+          "name" : "$SNAPSHOT_LIVENESS_FIELD_NAME",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "string"
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65595,
+            "name" : "$SNAPSHOT_LIVENESS_VALID_STAGES",
+            "repeated" : true,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "pipe0.$SNAPSHOT_INGRESS",
+      "id" : 2432703071,
+      "table_type" : "Snapshot",
+      "size" : 12,
+      "key" : [
+        {
+          "id" : 65571,
+          "name" : "$SNAPSHOT_TRIGGER_STAGE",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32",
+            "default_value" : 0
+          }
+        },
+        {
+          "id" : 65572,
+          "name" : "$SNAPSHOT_END_STAGE",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "uint32",
+            "default_value" : 11
+          }
+        },
+        {
+          "id" : 1,
+          "name" : "hdr.ethernet.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 2,
+          "name" : "hdr.ethernet.dst_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        },
+        {
+          "id" : 3,
+          "name" : "hdr.ethernet.ether_type",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 4,
+          "name" : "hdr.vlan_tag.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 5,
+          "name" : "hdr.vlan_tag.pcp",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 3
+          }
+        },
+        {
+          "id" : 6,
+          "name" : "hdr.vlan_tag.cfi",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 7,
+          "name" : "hdr.vlan_tag.vid",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 12
+          }
+        },
+        {
+          "id" : 8,
+          "name" : "hdr.ipv4.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 9,
+          "name" : "hdr.ipv4.version",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 4
+          }
+        },
+        {
+          "id" : 10,
+          "name" : "hdr.ipv4.diffserv",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 8
+          }
+        },
+        {
+          "id" : 11,
+          "name" : "hdr.ipv4.frag_offset",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 13
+          }
+        },
+        {
+          "id" : 12,
+          "name" : "hdr.ipv4.src_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 32
+          }
+        },
+        {
+          "id" : 13,
+          "name" : "hdr.ipv6.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 14,
+          "name" : "hdr.ipv6.flow_label",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 20
+          }
+        },
+        {
+          "id" : 15,
+          "name" : "hdr.ipv6.src_addr",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 128
+          }
+        },
+        {
+          "id" : 16,
+          "name" : "hdr.udp.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 17,
+          "name" : "hdr.tcp.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 18,
+          "name" : "hdr.atu_opt.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 19,
+          "name" : "hdr.tcp_pad2.$valid$",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 20,
+          "name" : "md.bd",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 21,
+          "name" : "ig_md.resubmit_flag",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 1
+          }
+        },
+        {
+          "id" : 22,
+          "name" : "ig_md.packet_version",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 2
+          }
+        },
+        {
+          "id" : 23,
+          "name" : "ig_md._pad2",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 3
+          }
+        },
+        {
+          "id" : 24,
+          "name" : "ig_md.ingress_port",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 9
+          }
+        },
+        {
+          "id" : 25,
+          "name" : "ig_md.ingress_mac_tstamp",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        },
+        {
+          "id" : 26,
+          "name" : "ig_prsr_md.global_tstamp",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 48
+          }
+        },
+        {
+          "id" : 27,
+          "name" : "ig_prsr_md.global_ver",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 32
+          }
+        },
+        {
+          "id" : 28,
+          "name" : "ig_prsr_md.parser_err",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 29,
+          "name" : "ig_dprsr_md.drop_ctl",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 3
+          }
+        },
+        {
+          "id" : 30,
+          "name" : "ig_tm_md.ucast_egress_port",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 9
+          }
+        },
+        {
+          "id" : 31,
+          "name" : "ig_tm_md.ingress_cos",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 3
+          }
+        },
+        {
+          "id" : 32,
+          "name" : "ig_tm_md.qid",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 5
+          }
+        },
+        {
+          "id" : 33,
+          "name" : "ig_tm_md.packet_color",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 2
+          }
+        },
+        {
+          "id" : 34,
+          "name" : "ig_tm_md.mcast_grp_a",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 16
+          }
+        },
+        {
+          "id" : 35,
+          "name" : "ig_tm_md.level1_mcast_hash",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : false,
+          "match_type" : "Ternary",
+          "type" : {
+            "type" : "bytes",
+            "width" : 13
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : true,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65573,
+            "name" : "$SNAPSHOT_ENABLE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "bool"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65574,
+            "name" : "$SNAPSHOT_STATUS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "enum",
+              "choices" : ["PASSIVE", "ARMED", "TRIGGER_HAPPY", "FULL"]
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65575,
+            "name" : "$SNAPSHOT_TIMER_ENABLE",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "bool",
+              "default_value" : false
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65576,
+            "name" : "$SNAPSHOT_TIMER_VALUE_USECS",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65577,
+            "name" : "$SNAPSHOT_FIELD_INFO",
+            "repeated" : true,
+            "annotations" : [],
+            "container" : [
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65581,
+                  "name" : "$SNAPSHOT_STAGE_ID",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "uint32"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 1,
+                  "name" : "hdr.ethernet.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 2,
+                  "name" : "hdr.ethernet.dst_addr",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 48
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 3,
+                  "name" : "hdr.ethernet.ether_type",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 4,
+                  "name" : "hdr.vlan_tag.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 5,
+                  "name" : "hdr.vlan_tag.pcp",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 3
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 6,
+                  "name" : "hdr.vlan_tag.cfi",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 7,
+                  "name" : "hdr.vlan_tag.vid",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 12
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 8,
+                  "name" : "hdr.ipv4.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 9,
+                  "name" : "hdr.ipv4.version",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 4
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 10,
+                  "name" : "hdr.ipv4.diffserv",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 8
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 11,
+                  "name" : "hdr.ipv4.frag_offset",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 13
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 12,
+                  "name" : "hdr.ipv4.src_addr",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 32
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 13,
+                  "name" : "hdr.ipv6.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 14,
+                  "name" : "hdr.ipv6.flow_label",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 20
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 15,
+                  "name" : "hdr.ipv6.src_addr",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 128
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 16,
+                  "name" : "hdr.udp.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 17,
+                  "name" : "hdr.tcp.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 18,
+                  "name" : "hdr.atu_opt.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 19,
+                  "name" : "hdr.tcp_pad2.$valid$",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 20,
+                  "name" : "md.bd",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 21,
+                  "name" : "ig_md.resubmit_flag",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 1
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 22,
+                  "name" : "ig_md.packet_version",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 2
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 23,
+                  "name" : "ig_md._pad2",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 3
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 24,
+                  "name" : "ig_md.ingress_port",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 9
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 25,
+                  "name" : "ig_md.ingress_mac_tstamp",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 48
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 26,
+                  "name" : "ig_prsr_md.global_tstamp",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 48
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 27,
+                  "name" : "ig_prsr_md.global_ver",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 32
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 28,
+                  "name" : "ig_prsr_md.parser_err",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 29,
+                  "name" : "ig_dprsr_md.drop_ctl",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 3
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 30,
+                  "name" : "ig_tm_md.ucast_egress_port",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 9
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 31,
+                  "name" : "ig_tm_md.ingress_cos",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 3
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 32,
+                  "name" : "ig_tm_md.qid",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 5
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 33,
+                  "name" : "ig_tm_md.packet_color",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 2
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 34,
+                  "name" : "ig_tm_md.mcast_grp_a",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 16
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 35,
+                  "name" : "ig_tm_md.level1_mcast_hash",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bytes",
+                    "width" : 13
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65578,
+            "name" : "$SNAPSHOT_CONTROL_INFO",
+            "repeated" : true,
+            "annotations" : [],
+            "container" : [
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65581,
+                  "name" : "$SNAPSHOT_STAGE_ID",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "uint32"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65582,
+                  "name" : "$SNAPSHOT_PREV_STAGE_TRIGGER",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bool"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65583,
+                  "name" : "$SNAPSHOT_TIMER_TRIGGER",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bool"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65584,
+                  "name" : "$SNAPSHOT_LOCAL_STAGE_TRIGGER",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "bool"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65585,
+                  "name" : "$SNAPSHOT_NEXT_TABLE_ID",
+                  "repeated" : false,
+                  "annotations" : [],
+                  "type" : {
+                    "type" : "uint32"
+                  }
+                }
+              },
+              {
+                "mandatory" : false,
+                "read_only" : true,
+                "singleton" : {
+                  "id" : 65579,
+                  "name" : "$SNAPSHOT_TABLE_INFO",
+                  "repeated" : true,
+                  "annotations" : [],
+                  "container" : [
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65588,
+                        "name" : "$SNAPSHOT_TABLE_ID",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "uint32"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65590,
+                        "name" : "$SNAPSHOT_MATCH_HIT_ADDRESS",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "uint32"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65591,
+                        "name" : "$SNAPSHOT_TABLE_HIT",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "bool"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65592,
+                        "name" : "$SNAPSHOT_TABLE_INHIBITED",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "bool"
+                        }
+                      }
+                    },
+                    {
+                      "mandatory" : false,
+                      "read_only" : true,
+                      "singleton" : {
+                        "id" : 65593,
+                        "name" : "$SNAPSHOT_TABLE_EXECUTED",
+                        "repeated" : false,
+                        "annotations" : [],
+                        "type" : {
+                          "type" : "bool"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "pipe0.$SNAPSHOT_INGRESS_LIVENESS",
+      "id" : 2449480287,
+      "table_type" : "SnapshotLiveness",
+      "size" : 0,
+      "key" : [
+        {
+          "id" : 65594,
+          "name" : "$SNAPSHOT_LIVENESS_FIELD_NAME",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "string"
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : false,
+          "read_only" : true,
+          "singleton" : {
+            "id" : 65595,
+            "name" : "$SNAPSHOT_LIVENESS_VALID_STAGES",
+            "repeated" : true,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint32"
+            }
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    },
+    {
+      "name" : "$PORT_METADATA",
+      "id" : 2415919104,
+      "table_type" : "PortMetadata",
+      "size" : 288,
+      "key" : [
+        {
+          "id" : 65569,
+          "name" : "ig_intr_md.ingress_port",
+          "repeated" : false,
+          "annotations" : [],
+          "mandatory" : true,
+          "match_type" : "Exact",
+          "type" : {
+            "type" : "bytes",
+            "width" : 9
+          }
+        }
+      ],
+      "data" : [
+        {
+          "mandatory" : false,
+          "read_only" : false,
+          "singleton" : {
+            "id" : 65570,
+            "name" : "$DEFAULT_FIELD",
+            "repeated" : false,
+            "annotations" : [],
+            "type" : {
+              "type" : "uint64",
+              "default_value" : 0
+            }
+          }
+        }
+      ],
+      "supported_operations" : [],
+      "attributes" : []
+    }
+  ],
+  "learn_filters" : []
+}
