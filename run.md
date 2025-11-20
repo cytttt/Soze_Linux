@@ -145,9 +145,3 @@ sudo ./tools/set_weight --saddr 10.0.0.2 --sport 40000 \
     --daddr 10.0.0.1 --dport 5000 \
     --weight 120000
 ```
-
-## question to weitao
-
- - exp param setting? end-host capbility
- - sudo account
- - p4 smth

@@ -12,6 +12,95 @@
   - [ebpf Notes](#ebpf)
   - [p4 Notes](#p4)
 
+## Linux-only Quickstart
+
+### Overview
+- Kernel TCP congestion control module `ccll` runs on the sender and behaves like a standard CC.
+- Optional receiver-side eBPF/TC programs cache ATU on ingress and insert an ATU TCP option (Kind=253, Len=10) into pure ACKs on egress.
+- The kernel module parses ATU from incoming ACKs (Netfilter `NF_INET_LOCAL_IN`) and updates rate/cwnd in `pkts_acked`.
+- When ATU is absent, `ccll` uses neutral updates and remains stable.
+
+### Prerequisites
+- Linux kernel ≥ 4.5 (tc `clsact`)
+- Packages: `clang`, `llvm`, `bpftool`, `make`, `gcc`, `libbpf-dev`, `iproute2`, `net-tools`, `ethtool`
+
+Example (Ubuntu):
+```
+sudo apt-get update
+sudo apt-get install -y clang llvm bpftool make gcc libbpf-dev iproute2 net-tools ethtool
+```
+
+### Build
+```
+cd linux
+make all
+```
+
+### Host Setup
+Use `linux/host-setup.bash`.
+
+Real interface mode (recommended):
+```
+sudo bash linux/host-setup.bash --iface <your_nic>
+```
+This loads `ccll`, sets `net.ipv4.tcp_congestion_control=ccll`, disables offloads on `<your_nic>`, and attaches TC programs:
+- `classifier/rx_ingress_cache_atu` on ingress
+- `classifier/rx_egress_add_ack_opt` on egress + `action csum ip tcp`
+
+Lab mode (local testing with netns/veth):
+```
+sudo bash linux/host-setup.bash
+```
+
+Note: The userspace ATU daemon is NOT required anymore. Code remains for reference, but do not run it.
+
+### Run & Verify
+- Active CC:
+```
+sysctl -n net.ipv4.tcp_congestion_control
+```
+- TC filters:
+```
+tc -s filter show dev <your_nic> ingress
+tc -s filter show dev <your_nic> egress
+```
+- Receiver ATU cache:
+```
+bpftool map dump pinned /sys/fs/bpf/tc/rx_flow_atu
+```
+- ACKs with ATU option:
+```
+tcpdump -i <your_nic> -Q out -n -vvv -s0 -XX 'tcp[13] == 0x10 and tcp'
+```
+- Logs:
+```
+sudo cat /sys/kernel/debug/tracing/trace_pipe
+dmesg | grep -i ccll
+```
+
+### Control (Generic Netlink)
+Per-flow weight can be set via Generic Netlink family `ccll`.
+
+Build tool:
+```
+sudo apt-get install -y libnl-3-dev libnl-genl-3-dev libnl-utils
+gcc -O2 -Wall -I/usr/include/libnl3 -o tools/set_weight tools/set_weight.c -lnl-3 -lnl-genl-3
+```
+
+Usage:
+```
+sudo ./tools/set_weight --saddr 10.0.0.2 --sport 40000 \
+    --daddr 10.0.0.1 --dport 5000 \
+    --weight 120000
+```
+
+### Cleanup
+```
+cd linux
+make clean
+sudo bash clean.bash
+```
+
 ## Repo Structures
 ```
 C2L2/
@@ -99,12 +188,6 @@ Sender ── DATA ──> P4 Switch ── DATA+ATU ──> Receiver
 ```
 
 ## Issues
-
-- I cannot adjust cksum at egress since the TSecr in skb will later be modified.
-    - ![image](cksum_issues.png)
-    - The 32-th word (higher word of `TSecr`) is **f33e** in tcpdump but I got **1d0d** in sk buffer at egress stage.
-    - Hence, my calculation at egress stage will never be correct.
-
 - P4 comparison issues:
      ```
      // compare with old header
